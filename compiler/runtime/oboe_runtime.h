@@ -247,8 +247,10 @@ OboeValue ob_std_random_seed(OboeValue a);
 OboeValue ob_std_random_randint(OboeValue a,
 				OboeValue b); /* inclusive bounds */
 OboeValue ob_std_random_choice(OboeValue arr);
-OboeValue
-ob_std_os_run(OboeValue cmd); /* runs via the shell; returns the exit code */
+/* runs via the shell. With a null second argument this returns the exit code;
+   otherwise it captures the output (stderr merged in) and returns
+   { "code", "output" }, echoing it live unless hide_output is truthy. */
+OboeValue ob_std_os_run(OboeValue cmd, OboeValue hide_output);
 OboeValue
 ob_std_os_spawn(OboeValue cmd); /* starts without waiting; returns the pid */
 OboeValue ob_std_os_read_file(OboeValue path);

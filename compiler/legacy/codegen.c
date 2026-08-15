@@ -184,6 +184,41 @@ static const StdMember *std_member_lookup(const char *module,
 	return NULL;
 }
 
+/* trailing optional arguments a built-in stdlib member accepts on top of its
+   arity. An omitted one is padded with a null at the call site, so the C
+   function keeps a fixed signature and decides for itself what a null means. */
+static int std_member_optional(const char *module, const char *member)
+{
+	if (strcmp(module, "os") == 0 && strcmp(member, "run") == 0)
+		return 1;
+	return 0;
+}
+
+/* the accepted argument counts, as they read in the arity error */
+static char *std_arity_text(int arity, int opt)
+{
+	if (opt == 0)
+		return fmt("%d", arity);
+	return fmt("%d or %d", arity, arity + opt);
+}
+
+static bool std_arity_ok(int arity, int opt, int argc)
+{
+	return argc >= arity && argc <= arity + opt;
+}
+
+/* the `, ob_null()` filling in for arguments the call left off */
+static char *std_arity_pad(int arity, int opt, int argc)
+{
+	char *s = strdup("");
+	for (int i = argc; i < arity + opt; i++) {
+		char *next = fmt("%s%sob_null()", s, i ? ", " : "");
+		free(s);
+		s = next;
+	}
+	return s;
+}
+
 static FILE *OUT;
 
 /* File whose declarations are currently being scanned or emitted, so a codegen
@@ -1579,13 +1614,21 @@ static char *gen_expr(Expr *e)
 									.module,
 								callee->as.ident,
 								e->line);
-						if (sm->arity !=
-						    e->as.call.arg_count)
+						int opt = std_member_optional(
+							g_import_directs[i]
+								.module,
+							sm->name);
+						if (!std_arity_ok(
+							    sm->arity, opt,
+							    e->as.call
+								    .arg_count))
 							codegen_error(
 								e->line,
-								fmt("'%s' takes %d argument(s)",
+								fmt("'%s' takes %s argument(s)",
 								    sm->name,
-								    sm->arity));
+								    std_arity_text(
+									    sm->arity,
+									    opt)));
 						buf_addf(&b, "ob_std_%s_%s(",
 							 g_import_directs[i]
 								 .module,
@@ -1601,7 +1644,11 @@ static char *gen_expr(Expr *e)
 								 a);
 							free(a);
 						}
-						buf_add(&b, ")");
+						char *pad = std_arity_pad(
+							sm->arity, opt,
+							e->as.call.arg_count);
+						buf_addf(&b, "%s)", pad);
+						free(pad);
 						return buf_take(&b);
 					}
 					/* a module's own function: bind against its declaration
@@ -1691,6 +1738,7 @@ static char *gen_expr(Expr *e)
 		}
 		if (callee->kind == EXPR_FIELD) {
 			/* arity check for builtin stdlib calls (module.member(...)) */
+			char *stdpad = strdup("");
 			Expr *mobj = callee->as.field.obj;
 			if (mobj->kind == EXPR_IDENT &&
 			    !var_in_scope(mobj->as.ident)) {
@@ -1709,15 +1757,27 @@ static char *gen_expr(Expr *e)
 								callee->as.field
 									.name,
 								e->line);
-						if (sm->arity !=
-						    e->as.call.arg_count)
+						int opt = std_member_optional(
+							g_import_aliases[i]
+								.module,
+							sm->name);
+						if (!std_arity_ok(
+							    sm->arity, opt,
+							    e->as.call
+								    .arg_count))
 							codegen_error(
 								e->line,
-								fmt("'%s.%s' takes %d argument(s)",
+								fmt("'%s.%s' takes %s argument(s)",
 								    g_import_aliases[i]
 									    .module,
 								    sm->name,
-								    sm->arity));
+								    std_arity_text(
+									    sm->arity,
+									    opt)));
+						free(stdpad);
+						stdpad = std_arity_pad(
+							sm->arity, opt,
+							e->as.call.arg_count);
 					}
 				}
 			}
@@ -1755,7 +1815,9 @@ static char *gen_expr(Expr *e)
 			}
 			free(bound);
 			char *args_code = buf_take(&args);
-			char *result = fmt("%s%s)", callee_code, args_code);
+			char *result =
+				fmt("%s%s%s)", callee_code, args_code, stdpad);
+			free(stdpad);
 			free(args_code);
 			free(callee_code);
 			return result;

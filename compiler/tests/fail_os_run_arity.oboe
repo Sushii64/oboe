@@ -1,0 +1,5 @@
+import os
+
+func main(array args) {
+    print(os.run("true", true, true))
+}

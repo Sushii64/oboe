@@ -1510,16 +1510,93 @@ OboeValue ob_std_random_choice(OboeValue arr)
 
 /* ---- built-in stdlib modules: os ---- */
 
-OboeValue ob_std_os_run(OboeValue cmd)
+/* the exit status a wait()-style int really means */
+static int64_t ob_exit_code(int status)
+{
+#ifdef _WIN32
+	return status;
+#else
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif
+}
+
+/* wraps a command so the redirection applies to the whole thing rather than
+   to its last stage -- `a && b 2>&1` would only redirect b. stderr is merged
+   into stdout because a `hide_output` that still let stderr reach the terminal
+   would not be hiding the output. */
+static char *ob_wrap_capture(const char *c)
+{
+	size_t n = strlen(c);
+	char *w = malloc(n + 16);
+	if (!w)
+		ob_oom();
+#ifdef _WIN32
+	/* cmd.exe wants it on one line */
+	sprintf(w, "(%s) 2>&1", c);
+#else
+	sprintf(w, "(\n%s\n) 2>&1", c);
+#endif
+	return w;
+}
+
+/* os.run(cmd) returns the exit code, as it always has. os.run(cmd, hide) also
+   captures the command's output and returns { "code": int, "output": string },
+   echoing the output as it arrives unless `hide` is truthy. Codegen passes a
+   null for the omitted second argument, which is what selects the plain form.
+   Captured output stops at the first NUL byte, since an Oboe string is a C
+   string. */
+OboeValue ob_std_os_run(OboeValue cmd, OboeValue hide_output)
 {
 	char *c = ob_to_cstr(cmd);
-	int status = system(c);
+	/* the child writes to the same terminal, so anything we have buffered
+	   has to land before it starts */
+	fflush(stdout);
+	if (hide_output.tag == OB_NULL) {
+		int status = system(c);
+		free(c);
+		return ob_int(ob_exit_code(status));
+	}
+
+	bool hide = ob_truthy(hide_output);
+	char *wrapped = ob_wrap_capture(c);
 	free(c);
 #ifdef _WIN32
-	return ob_int(status);
+	FILE *p = _popen(wrapped, "r");
 #else
-	return ob_int(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+	FILE *p = popen(wrapped, "r");
 #endif
+	free(wrapped);
+	if (!p)
+		ob_throw("os.ProcessError", ob_string("cannot run command"));
+
+	char buf[4096];
+	char *acc = malloc(1);
+	if (!acc)
+		ob_oom();
+	acc[0] = '\0';
+	size_t len = 0, n;
+	while ((n = fread(buf, 1, sizeof buf, p)) > 0) {
+		if (!hide) {
+			fwrite(buf, 1, n, stdout);
+			fflush(stdout);
+		}
+		char *bigger = realloc(acc, len + n + 1);
+		if (!bigger)
+			ob_oom();
+		acc = bigger;
+		memcpy(acc + len, buf, n);
+		len += n;
+		acc[len] = '\0';
+	}
+#ifdef _WIN32
+	int status = _pclose(p);
+#else
+	int status = pclose(p);
+#endif
+	OboeValue r = ob_dict_new();
+	ob_dict_set(r, "code", ob_int(ob_exit_code(status)));
+	ob_dict_set(r, "output", ob_string_take(acc));
+	return r;
 }
 
 OboeValue ob_std_os_spawn(OboeValue cmd)

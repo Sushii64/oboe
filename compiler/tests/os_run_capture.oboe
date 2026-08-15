@@ -1,0 +1,27 @@
+import os
+
+func main(array args) {
+    // the plain form is unchanged: just the exit code
+    print(os.run("exit 7"))
+
+    // hidden: nothing reaches the terminal, it all lands in the dict
+    var r = os.run("echo one; echo two 1>&2; exit 3", true)
+    print(r["code"])
+    print(r["output"] == "one\ntwo\n")
+
+    // shown: the same capture, echoed as it arrives
+    var s = os.run("echo shown", false)
+    print(s["code"], s["output"].trim())
+
+    // the redirection covers the whole command, not just its last stage
+    var m = os.run("echo a && echo b", true)
+    print(m["output"] == "a\nb\n")
+
+    // a command that prints nothing still gives an empty string back
+    var e = os.run("true", true)
+    print(e["output"] == "", e["output"].len())
+
+    // the capture flag is any truthy value, and the dict is an ordinary dict
+    var k = os.run("echo k", 1)
+    print(k.keys().join(","))
+}

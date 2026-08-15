@@ -140,6 +140,9 @@ OboeValue dump__dump_class(OboeValue c, OboeValue depth);
 OboeValue dump__dump_ast(OboeValue decls);
 OboeValue codegen__std_module_members(OboeValue module);
 OboeValue codegen__std_member_lookup(OboeValue module, OboeValue member, OboeValue line);
+OboeValue codegen__std_member_optional(OboeValue module, OboeValue member);
+OboeValue codegen__std_arity_text(OboeValue arity, OboeValue opt);
+OboeValue codegen__std_arity_pad(OboeValue arity, OboeValue opt, OboeValue argc);
 OboeValue codegen__codegen_set_output_path(OboeValue path);
 OboeValue codegen__emit(OboeValue s);
 OboeValue codegen__flush_out();
@@ -271,6 +274,7 @@ static OboeValue codegen__LOOP_TRY_DEPTH;
 static OboeValue codegen__STD_MATH;
 static OboeValue codegen__STD_RANDOM;
 static OboeValue codegen__STD_OS;
+static OboeValue codegen__STD_OPTIONAL;
 static OboeValue codegen__OUT;
 static OboeValue codegen__OUT_PATH;
 static OboeValue codegen__CURRENT_FILE;
@@ -316,6 +320,31 @@ OboeValue codegen__std_member_lookup(OboeValue module, OboeValue member, OboeVal
     }
     (void)(codegen__codegen_error(line, ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("'")), module, ob_add), ob_interpolate(1, ob_string("' has no member '")), ob_add), member, ob_add), ob_interpolate(1, ob_string("'")), ob_add)));
     return ob_int(0LL);
+    return ob_null();
+}
+
+OboeValue codegen__std_member_optional(OboeValue module, OboeValue member) {
+    OboeValue key = ob_binop("+", ob_binop("+", module, ob_interpolate(1, ob_string(".")), ob_add), member, ob_add);
+    return (ob_truthy(ob_dict_has_m(codegen__STD_OPTIONAL, key)) ? (ob_index_get(codegen__STD_OPTIONAL, key)) : (ob_int(0LL)));
+    return ob_null();
+}
+
+OboeValue codegen__std_arity_text(OboeValue arity, OboeValue opt) {
+    if (ob_truthy(ob_binop("==", opt, ob_int(0LL), ob_eq))) {
+        return ob_str(arity);
+    }
+    return ob_binop("+", ob_binop("+", ob_str(arity), ob_interpolate(1, ob_string(" or ")), ob_add), ob_str(ob_binop("+", arity, opt, ob_add)), ob_add);
+    return ob_null();
+}
+
+OboeValue codegen__std_arity_pad(OboeValue arity, OboeValue opt, OboeValue argc) {
+    OboeValue pad = ({ OboeValue __a = ob_array_new(); __a; });
+    OboeValue i = argc;
+    while (ob_truthy(ob_binop("<", i, ob_binop("+", arity, opt, ob_add), ob_lt))) {
+        (void)(ob_arr_push(pad, ob_binop("+", (ob_truthy(ob_binop("==", i, ob_int(0LL), ob_eq)) ? (ob_string("")) : (ob_interpolate(1, ob_string(", ")))), ob_interpolate(1, ob_string("ob_null()")), ob_add)));
+        (void)((i = ob_binop("+", i, ob_int(1LL), ob_add)));
+    }
+    return ob_arr_join(pad, ob_string(""));
     return ob_null();
 }
 
@@ -1292,8 +1321,9 @@ OboeValue codegen__gen_call_ident(OboeValue e) {
         OboeValue db = ({ OboeValue __a = ob_array_new(); __a; });
         if (ob_truthy(codegen__module_is_builtin(ob_index_get(idr, ob_interpolate(1, ob_string("module")))))) {
             OboeValue arity = codegen__std_member_lookup(ob_index_get(idr, ob_interpolate(1, ob_string("module"))), ident, ob_index_get(e, ob_interpolate(1, ob_string("line"))));
-            if (ob_truthy(ob_binop("!=", arity, argc, ob_neq))) {
-                (void)(codegen__codegen_error(ob_index_get(e, ob_interpolate(1, ob_string("line"))), ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("'")), ident, ob_add), ob_interpolate(1, ob_string("' takes ")), ob_add), ob_str(arity), ob_add), ob_interpolate(1, ob_string(" argument(s)")), ob_add)));
+            OboeValue opt = codegen__std_member_optional(ob_index_get(idr, ob_interpolate(1, ob_string("module"))), ident);
+            if (ob_truthy(ob_bool(ob_truthy(ob_binop("<", argc, arity, ob_lt)) || ob_truthy(ob_binop(">", argc, ob_binop("+", arity, opt, ob_add), ob_gt))))) {
+                (void)(codegen__codegen_error(ob_index_get(e, ob_interpolate(1, ob_string("line"))), ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("'")), ident, ob_add), ob_interpolate(1, ob_string("' takes ")), ob_add), codegen__std_arity_text(arity, opt), ob_add), ob_interpolate(1, ob_string(" argument(s)")), ob_add)));
             }
             (void)(ob_arr_push(db, ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("ob_std_")), ob_index_get(idr, ob_interpolate(1, ob_string("module"))), ob_add), ob_interpolate(1, ob_string("_")), ob_add), ident, ob_add), ob_interpolate(1, ob_string("(")), ob_add)));
             OboeValue si = ob_int(0LL);
@@ -1301,6 +1331,7 @@ OboeValue codegen__gen_call_ident(OboeValue e) {
                 (void)(ob_arr_push(db, ob_binop("+", (ob_truthy(ob_binop("!=", si, ob_int(0LL), ob_neq)) ? (ob_interpolate(1, ob_string(", "))) : (ob_string(""))), codegen__gen_expr(ob_index_get(ob_index_get(e, ob_interpolate(1, ob_string("args"))), si)), ob_add)));
                 (void)((si = ob_binop("+", si, ob_int(1LL), ob_add)));
             }
+            (void)(ob_arr_push(db, codegen__std_arity_pad(arity, opt, argc)));
             (void)(ob_arr_push(db, ob_interpolate(1, ob_string(")"))));
             return ob_arr_join(db, ob_string(""));
         }
@@ -1353,6 +1384,7 @@ OboeValue codegen__gen_call_ident(OboeValue e) {
 OboeValue codegen__gen_call_field(OboeValue e) {
     OboeValue callee = ob_index_get(e, ob_interpolate(1, ob_string("callee")));
     OboeValue argc = ob_m_len(ob_index_get(e, ob_interpolate(1, ob_string("args"))));
+    OboeValue stdpad = ob_string("");
     OboeValue mobj = ob_index_get(callee, ob_interpolate(1, ob_string("obj")));
     if (ob_truthy(ob_bool(ob_truthy(ob_binop("==", ob_index_get(mobj, ob_interpolate(1, ob_string("kind"))), ob_interpolate(1, ob_string("EXPR_IDENT")), ob_eq)) && ob_truthy(ob_not(codegen__var_in_scope(ob_index_get(mobj, ob_interpolate(1, ob_string("ident"))))))))) {
         { OboeValue __it = codegen__IMPORT_ALIASES; int64_t __n = ob_iter_len(__it);
@@ -1360,9 +1392,11 @@ OboeValue codegen__gen_call_field(OboeValue e) {
             OboeValue ia = ob_iter_value(__it, __i);
             if (ob_truthy(ob_bool(ob_truthy(ob_bool(ob_truthy(ob_binop("==", ob_index_get(ia, ob_interpolate(1, ob_string("local_name"))), ob_index_get(mobj, ob_interpolate(1, ob_string("ident"))), ob_eq)) && ob_truthy(ob_binop("==", ob_index_get(ia, ob_interpolate(1, ob_string("owner"))), codegen__CURRENT_PREFIX, ob_eq)))) && ob_truthy(codegen__module_is_builtin(ob_index_get(ia, ob_interpolate(1, ob_string("module")))))))) {
                 OboeValue arity = codegen__std_member_lookup(ob_index_get(ia, ob_interpolate(1, ob_string("module"))), ob_index_get(callee, ob_interpolate(1, ob_string("name"))), ob_index_get(e, ob_interpolate(1, ob_string("line"))));
-                if (ob_truthy(ob_binop("!=", arity, argc, ob_neq))) {
-                    (void)(codegen__codegen_error(ob_index_get(e, ob_interpolate(1, ob_string("line"))), ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("'")), ob_index_get(ia, ob_interpolate(1, ob_string("module"))), ob_add), ob_interpolate(1, ob_string(".")), ob_add), ob_index_get(callee, ob_interpolate(1, ob_string("name"))), ob_add), ob_interpolate(1, ob_string("' takes ")), ob_add), ob_str(arity), ob_add), ob_interpolate(1, ob_string(" argument(s)")), ob_add)));
+                OboeValue opt = codegen__std_member_optional(ob_index_get(ia, ob_interpolate(1, ob_string("module"))), ob_index_get(callee, ob_interpolate(1, ob_string("name"))));
+                if (ob_truthy(ob_bool(ob_truthy(ob_binop("<", argc, arity, ob_lt)) || ob_truthy(ob_binop(">", argc, ob_binop("+", arity, opt, ob_add), ob_gt))))) {
+                    (void)(codegen__codegen_error(ob_index_get(e, ob_interpolate(1, ob_string("line"))), ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("'")), ob_index_get(ia, ob_interpolate(1, ob_string("module"))), ob_add), ob_interpolate(1, ob_string(".")), ob_add), ob_index_get(callee, ob_interpolate(1, ob_string("name"))), ob_add), ob_interpolate(1, ob_string("' takes ")), ob_add), codegen__std_arity_text(arity, opt), ob_add), ob_interpolate(1, ob_string(" argument(s)")), ob_add)));
                 }
+                (void)((stdpad = codegen__std_arity_pad(arity, opt, argc)));
             }
         } }
     }
@@ -1385,7 +1419,7 @@ OboeValue codegen__gen_call_field(OboeValue e) {
         (void)((first = ob_bool(false)));
         (void)((i = ob_binop("+", i, ob_int(1LL), ob_add)));
     }
-    return ob_binop("+", ob_binop("+", ob_index_get(got, ob_interpolate(1, ob_string("code"))), ob_arr_join(args, ob_string("")), ob_add), ob_interpolate(1, ob_string(")")), ob_add);
+    return ob_binop("+", ob_binop("+", ob_binop("+", ob_index_get(got, ob_interpolate(1, ob_string("code"))), ob_arr_join(args, ob_string("")), ob_add), stdpad, ob_add), ob_interpolate(1, ob_string(")")), ob_add);
     return ob_null();
 }
 
@@ -3277,6 +3311,7 @@ static void __oboe_toplevel_5(void) {
     codegen__STD_MATH = ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("abs"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("min"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("max"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("pow"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("sqrt"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("floor"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("ceil"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("round"))), ob_int(1LL)); __d; });
     codegen__STD_RANDOM = ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("seed"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("randint"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("choice"))), ob_int(1LL)); __d; });
     codegen__STD_OS = ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("run"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("spawn"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("read_file"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("write_file"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("append_file"))), ob_int(2LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("exists"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("remove"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("getenv"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("exit"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_dir"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("mkdir"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("listdir"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("realpath"))), ob_int(1LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("script_file"))), ob_int(0LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("script_dir"))), ob_int(0LL)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("project_root"))), ob_int(0LL)); __d; });
+    codegen__STD_OPTIONAL = ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("os.run"))), ob_int(1LL)); __d; });
     codegen__OUT = ({ OboeValue __a = ob_array_new(); __a; });
     codegen__OUT_PATH = ob_null();
     codegen__CURRENT_FILE = ob_null();

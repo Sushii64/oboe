@@ -115,6 +115,35 @@ func std_member_lookup(str module, str member, int line) {
 	return 0
 }
 
+// Trailing optional arguments a built-in stdlib member accepts on top of its
+// arity. An omitted one is padded with a null at the call site, so the C
+// function keeps a fixed signature and decides for itself what a null means.
+var STD_OPTIONAL = { "os.run": 1 }
+
+func std_member_optional(str module, str member) {
+	var key = module + "." + member
+	return STD_OPTIONAL.has(key) ? STD_OPTIONAL[key] : 0
+}
+
+// The accepted argument counts, as they read in the arity error.
+func std_arity_text(int arity, int opt) {
+	if (opt == 0) {
+		return str(arity)
+	}
+	return str(arity) + " or " + str(arity + opt)
+}
+
+// The `, ob_null()` filling in for arguments the call left off.
+func std_arity_pad(int arity, int opt, int argc) {
+	var pad = []
+	var i = argc
+	while (i < arity + opt) {
+		pad.push((i == 0 ? "" : ", ") + "ob_null()")
+		i = i + 1
+	}
+	return pad.join("")
+}
+
 // Emitted C, one piece per fprintf in the C. ob_write flushes every call, so
 // this is joined and written once rather than streamed.
 var OUT = []
@@ -1266,10 +1295,12 @@ func gen_call_ident(e) {
 		if (module_is_builtin(idr["module"])) {
 			var arity = std_member_lookup(idr["module"], ident,
 						      e["line"])
-			if (arity != argc) {
+			var opt = std_member_optional(idr["module"], ident)
+			if (argc < arity or argc > arity + opt) {
 				codegen_error(e["line"],
 					      "'" + ident + "' takes " +
-						      str(arity) +
+						      std_arity_text(arity,
+								     opt) +
 						      " argument(s)")
 			}
 			db.push("ob_std_" + idr["module"] + "_" + ident + "(")
@@ -1279,6 +1310,7 @@ func gen_call_ident(e) {
 					gen_expr(e["args"][si]))
 				si = si + 1
 			}
+			db.push(std_arity_pad(arity, opt, argc))
 			db.push(")")
 			return db.join("")
 		}
@@ -1346,6 +1378,7 @@ func gen_call_field(e) {
 	var callee = e["callee"]
 	var argc = e["args"].len()
 	// arity check for builtin stdlib calls (module.member(...))
+	var stdpad = ""
 	var mobj = callee["obj"]
 	if (mobj["kind"] == "EXPR_IDENT" and !var_in_scope(mobj["ident"])) {
 		for (ia in IMPORT_ALIASES) {
@@ -1355,14 +1388,19 @@ func gen_call_field(e) {
 				var arity = std_member_lookup(ia["module"],
 							      callee["name"],
 							      e["line"])
-				if (arity != argc) {
+				var opt = std_member_optional(ia["module"],
+							      callee["name"])
+				if (argc < arity or argc > arity + opt) {
 					codegen_error(e["line"],
 						      "'" + ia["module"] + "." +
 							      callee["name"] +
 							      "' takes " +
-							      str(arity) +
+							      std_arity_text(
+								      arity,
+								      opt) +
 							      " argument(s)")
 				}
+				stdpad = std_arity_pad(arity, opt, argc)
 			}
 		}
 	}
@@ -1390,7 +1428,7 @@ func gen_call_field(e) {
 		first = false
 		i = i + 1
 	}
-	return got["code"] + args.join("") + ")"
+	return got["code"] + args.join("") + stdpad + ")"
 }
 
 func gen_expr(e) {

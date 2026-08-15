@@ -53,6 +53,8 @@ _cehelper	var thing = 1
 modhasnofunc	import thing from _cehelper func f() { thing() }
 stdvalue	import abs from math func f() { print(abs) }
 stdarity	import abs from math func f() { print(abs(1, 2)) }
+stdoptarity	import os func f() { os.run("x", true, true) }
+stdoptdirect	import run from os func f() { run() }
 
 # ---- builtin arity
 inputarity	func f() { print(input(1)) }

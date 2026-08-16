@@ -1,0 +1,18 @@
+len: 11
+substr: éllo
+slice: wörld
+index_of: 6 7
+reverse: dlröw olléh
+iter: 11 h|é|l|l|o| |w|ö|r|l|d
+roundtrip: true
+split: é,→,ü
+wide: 3 127930 b🎺a
+chr: 🎺 é A
+upper: HéLLO
+lower: hÉllo
+concat: 2 3 éé
+raw: 5
+raw roundtrip: true
+orders: true true true
+raw orders: true true true
+empty: 0 true 0

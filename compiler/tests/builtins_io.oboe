@@ -24,7 +24,8 @@ func classify(str c) {
 func main(array args) {
     print("ord:", ord("A"), ord("a"), ord("0"), ord("~"))
     print("chr:", chr(65), chr(122), chr(32) == " ")
-    // ord() is byte-oriented, so a multi-byte character gives its first byte
+    // ord() is codepoint-oriented: a multi-byte character is one character
+    // with one codepoint value, not the two bytes it is encoded as
     print("utf8:", ord("é"), "é".len())
     print("roundtrip:", chr(ord("Q")))
 
@@ -45,9 +46,14 @@ func main(array args) {
         print("empty:", e)
     }
     try {
-        print(chr(300))
+        print(chr(1114112))
     } catch (ValueError e) {
         print("range:", e)
+    }
+    try {
+        print(chr(55296))
+    } catch (ValueError e) {
+        print("surrogate:", e)
     }
     try {
         print(ord(7))

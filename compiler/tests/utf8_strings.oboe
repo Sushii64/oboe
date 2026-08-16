@@ -1,0 +1,89 @@
+// strings are codepoint-oriented: every index, length and iteration step
+// counts characters, not the bytes they happen to be encoded as.
+
+import os
+
+func walk_forward(str s) {
+    var out = ""
+    for (i in range(0, s.len())) { out = out + s.substr(i, 1) }
+    return out
+}
+
+func walk_backward(str s) {
+    var out = ""
+    var i = s.len() - 1
+    while (i >= 0) {
+        out = out + s.substr(i, 1)
+        i = i - 1
+    }
+    return out
+}
+
+// read one character ahead and then step back onto it, the way a lexer does
+func lookahead_walk(str s) {
+    var out = ""
+    const var n = s.len()
+    for (i in range(0, n)) {
+        if (i + 1 < n) { s.substr(i + 1, 1) }
+        out = out + s.substr(i, 1)
+    }
+    return out
+}
+
+func main(array args) {
+    const var s = "héllo wörld"
+
+    print("len:", s.len())
+    print("substr:", s.substr(1, 4))
+    print("slice:", s.slice(6, 11))
+    print("index_of:", s.index_of("wörld"), s.index_of("ö"))
+    print("reverse:", s.reverse())
+
+    // iteration binds whole characters, and the index a pairs loop hands back
+    // is the same one substr takes -- so this round-trips
+    var chars = []
+    for (c in s) { chars.push(c) }
+    print("iter:", chars.len(), chars.join("|"))
+
+    var rebuilt = ""
+    for (i, c in ipairs(s)) { rebuilt = rebuilt + s.substr(i, 1) }
+    print("roundtrip:", rebuilt == s)
+
+    print("split:", "é→ü".split("").join(","))
+
+    // a 4-byte codepoint, to cover the widest encoding
+    const var wide = "a🎺b"
+    print("wide:", wide.len(), ord(wide.substr(1, 1)), wide.reverse())
+    print("chr:", chr(127930), chr(233), chr(65))
+
+    // case conversion is ASCII-only, but must leave the rest intact rather
+    // than corrupting it
+    print("upper:", "héllo".upper())
+    print("lower:", "HÉLLO".lower())
+
+    // concatenation and repetition keep the character count coherent
+    print("concat:", ("é" + "ü").len(), ("é" x 3).len(), "é".repeat(2))
+
+    // bytes that are not valid UTF-8 still have a length, still iterate, and
+    // still round-trip -- os.read_file() on a binary must not explode
+    // 6 bytes: 'a', a well-formed "é", a truncated lead byte, 'b', and a bare
+    // continuation byte -- so 5 characters, and the two counts disagree
+    const var raw = os.read_file("${os.script_dir()}/helpers/latin1.bin")
+    print("raw:", raw.len())
+    var back = ""
+    for (c in raw) { back = back + c }
+    print("raw roundtrip:", back == raw)
+
+    // the index cursor in the string header memoizes across calls, so an
+    // access order that jumps around has to agree with a straight walk. the
+    // lexer's own pattern -- look ahead one character, then back -- is the
+    // one that matters, and it is the one a forward-only cursor gets wrong.
+    print("orders:", walk_forward(s) == s, walk_backward(s) == s.reverse(),
+          lookahead_walk(s) == s)
+    // and again for a payload that is not well-formed UTF-8, which cannot use
+    // the backward step and falls back to rescanning
+    print("raw orders:", walk_forward(raw) == raw,
+          walk_backward(raw) == raw.reverse(), lookahead_walk(raw) == raw)
+
+    print("empty:", "".len(), "".reverse() == "", "".split("").len())
+}

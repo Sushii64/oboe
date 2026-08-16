@@ -1,0 +1,8 @@
+// a surrogate half has no UTF-8 encoding; chr() must refuse rather than mint
+// ill-formed text out of a valid-looking int
+
+func main(array args) {
+    print("before")
+    print(chr(56320))
+    print("unreachable")
+}

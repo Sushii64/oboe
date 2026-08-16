@@ -102,20 +102,26 @@ OboeValue ob_null(void);
 
 /* An Oboe string's byte length, in constant time.
 
-   Every string is allocated with its length in a header immediately before the
-   payload, and `as.s` points past that header at an ordinary NUL-terminated C
-   string -- so strcmp, printf and the FFI go on treating it as a plain char *,
-   while the length is one load away.
+   Every string is allocated with a header immediately before the payload, and
+   `as.s` points past that header at an ordinary NUL-terminated C string -- so
+   strcmp, printf and the FFI go on treating it as a plain char *, while the
+   length is one load away.
 
-   This is not a micro-optimization. Without it, walking a string a byte at a
-   time is quadratic, because .substr() has to know the subject's length just to
-   clamp its arguments, and strlen() re-derives it on every call: the
+   This is not a micro-optimization. Without it, walking a string a character
+   at a time is quadratic, because .substr() has to know the subject's length
+   just to clamp its arguments, and strlen() re-derives it on every call: the
    Oboe-written lexer took 4.8s on a 16k-line file, almost all of it inside
    strlen. ob_string() and ob_string_take() are the only two places that ever
    fill in as.s, so the header is always there to be read -- but it is only
    there for pointers those produced, which is why this takes an Oboe payload
-   and not any char *. An interior pointer has no header in front of it. */
+   and not any char *. An interior pointer has no header in front of it.
+
+   ob_slen is the length in bytes, which is what memcpy, strstr and the FFI
+   want. ob_sclen is the length in codepoints, which is what the language
+   means by .len() and what every index into a string is counted in. They are
+   equal for ASCII, which the header also uses as its fast path. */
 size_t ob_slen(const char *s);
+size_t ob_sclen(const char *s);
 OboeValue ob_array_new(void);
 OboeValue ob_dict_new(void);
 OboeValue ob_object_wrap(void *obj);

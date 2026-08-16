@@ -343,7 +343,7 @@ l.method()
 - `write()` - Print without newline.
 - `eprint()` / `ewrite()` - The same pair, writing to stderr instead. stdout is flushed first, so the two streams stay in order when both go to the same place.
 - `input()` - Pauses execution and waits for user input, returns that input. Same as Python.
-- `ord(s)` - The numeric value of a string's first byte; `chr(n)` is the inverse. Byte-oriented like the rest of the string handling, so `ord` on a multi-byte character gives its first byte. `ord("")` throws `ValueError`, and `chr` throws `ValueError` outside 0..255 — including `chr(0)`, which a NUL-terminated string cannot hold.
+- `ord(s)` - The codepoint of a string's first character; `chr(n)` is the inverse, encoding a codepoint as UTF-8. `ord("é")` is 233 and `chr(233)` is `"é"`. `ord("")` throws `ValueError`, and `chr` throws `ValueError` outside 0..1114111, on a surrogate half (0xD800..0xDFFF, which has no UTF-8 form), and on `chr(0)`, which a NUL-terminated string cannot hold.
 
 ### Built-in stdlib modules
 
@@ -369,6 +369,16 @@ Strings, arrays and dicts carry methods. Because the compiler does not track pri
 - Dicts: `.keys()`, `.values()`, `.has(k)`, `.remove(k)`
 
 `.push`/`.pop`/`.insert`/`.remove_at` mutate the array in place; `.reverse()` and `.slice()` return new values. `.split("")` splits into single characters, and `.index_of` returns -1 when absent.
+
+Strings are codepoint-oriented: `.len()` counts characters, and every string index (`.substr()`, `.slice()`, the value `.index_of()` returns, the one a `pairs`/`ipairs` loop binds) counts characters too, so an index from one can be fed to another. A multi-byte character is one unit throughout, and `.reverse()`, `.split("")` and `for (c in s)` never split one.
+
+```
+"héllo".len()          // 5, not 6
+"héllo".substr(1, 1)   // "é"
+"héllo".reverse()      // "olléh"
+```
+
+Note that `.upper()`/`.lower()` are ASCII-only, they leave every other character untouched (honestly I cba to implement Unicode casing atp). A codepoint is not a user-perceived character, so `.reverse()` still moves a combining mark off what it combines with. And text that is not valid UTF-8 is never rejected: a malformed byte counts as one character of its own, so a string of arbitrary bytes still works.
 
 ```
 "a,b,c".split(",")   // ["a", "b", "c"]

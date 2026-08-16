@@ -167,14 +167,37 @@ OboeValue ob_null(void)
 	return r;
 }
 
-/* Allocates [size_t length][len payload bytes][NUL] and returns the payload,
+/* Allocates [OboeStrHdr][len payload bytes][NUL] and returns the payload,
    which is what as.s points at. See the note on ob_slen in the header. */
+
+#define OB_CPS_UNSET ((size_t)-1)
+
+typedef struct {
+	size_t bytes; /* payload length in bytes */
+	size_t cps; /* payload length in codepoints, lazily counted */
+	size_t cur_cp; /* memoized cursor: a codepoint index... */
+	size_t cur_byte; /* ...and the byte offset that codepoint starts at */
+	bool wf; /* payload is well-formed UTF-8; set alongside cps */
+} OboeStrHdr;
+
+/* Not const-qualified even though every caller holds a const char *: the
+   codepoint count and the cursor below are memoized into the header, which is
+   bookkeeping about the payload rather than part of it. */
+static OboeStrHdr *ob_hdr(const char *s)
+{
+	return (OboeStrHdr *)(void *)(uintptr_t)s - 1;
+}
+
 static char *ob_str_alloc(size_t len)
 {
-	size_t *hdr = malloc(sizeof(size_t) + len + 1);
+	OboeStrHdr *hdr = malloc(sizeof(OboeStrHdr) + len + 1);
 	if (!hdr)
 		ob_oom();
-	*hdr = len;
+	hdr->bytes = len;
+	hdr->cps = OB_CPS_UNSET;
+	hdr->cur_cp = 0;
+	hdr->cur_byte = 0;
+	hdr->wf = false;
 	char *s = (char *)(hdr + 1);
 	s[len] = '\0';
 	return s;
@@ -182,7 +205,197 @@ static char *ob_str_alloc(size_t len)
 
 size_t ob_slen(const char *s)
 {
-	return ((const size_t *)s)[-1];
+	return ob_hdr(s)->bytes;
+}
+
+/* ---- UTF-8 ----
+
+   Decoding is total. Anything that is not a well-formed, non-overlong,
+   non-surrogate sequence lying entirely inside the payload decodes as its lead
+   byte, one byte wide. That is what lets a string of arbitrary bytes -- what
+   os.read_file() hands back for a binary, or for Latin-1 text -- still have a
+   length, still iterate, and still round-trip through .split("").join(""),
+   instead of throwing somewhere the caller can do nothing about. The cost is
+   that a lone 0xE9 and a well-formed "é" both answer 233 to ord(). */
+
+static size_t ob_utf8_decode(const char *s, size_t n, size_t i, uint32_t *cp)
+{
+	unsigned char c = (unsigned char)s[i];
+	size_t need;
+	uint32_t v, lo;
+
+	if (c < 0x80) {
+		*cp = c;
+		return 1;
+	}
+	if ((c & 0xE0) == 0xC0) {
+		need = 2;
+		v = c & 0x1Fu;
+		lo = 0x80;
+	} else if ((c & 0xF0) == 0xE0) {
+		need = 3;
+		v = c & 0x0Fu;
+		lo = 0x800;
+	} else if ((c & 0xF8) == 0xF0) {
+		need = 4;
+		v = c & 0x07u;
+		lo = 0x10000;
+	} else {
+		/* a continuation byte on its own, or a 5-byte-or-longer lead */
+		*cp = c;
+		return 1;
+	}
+	if (i + need > n) {
+		*cp = c;
+		return 1;
+	}
+	for (size_t k = 1; k < need; k++) {
+		unsigned char cc = (unsigned char)s[i + k];
+		if ((cc & 0xC0) != 0x80) {
+			*cp = c;
+			return 1;
+		}
+		v = (v << 6) | (cc & 0x3Fu);
+	}
+	/* overlong, past the last codepoint, or a surrogate half: not a
+	   character, so the lead byte stands for itself */
+	if (v < lo || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) {
+		*cp = c;
+		return 1;
+	}
+	*cp = v;
+	return need;
+}
+
+/* Writes cp to out (at most 4 bytes) and returns how many. The caller is
+   responsible for having rejected surrogates and anything past U+10FFFF. */
+static size_t ob_utf8_encode(uint32_t cp, char *out)
+{
+	if (cp < 0x80) {
+		out[0] = (char)cp;
+		return 1;
+	}
+	if (cp < 0x800) {
+		out[0] = (char)(0xC0 | (cp >> 6));
+		out[1] = (char)(0x80 | (cp & 0x3F));
+		return 2;
+	}
+	if (cp < 0x10000) {
+		out[0] = (char)(0xE0 | (cp >> 12));
+		out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		out[2] = (char)(0x80 | (cp & 0x3F));
+		return 3;
+	}
+	out[0] = (char)(0xF0 | (cp >> 18));
+	out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+	out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+	out[3] = (char)(0x80 | (cp & 0x3F));
+	return 4;
+}
+
+/* Counted once on demand and then remembered, so a string that is only ever
+   concatenated or printed never pays for the walk at all. */
+size_t ob_sclen(const char *s)
+{
+	OboeStrHdr *h = ob_hdr(s);
+
+	if (h->cps == OB_CPS_UNSET) {
+		size_t n = h->bytes, cps = 0;
+		bool wf = true;
+		for (size_t i = 0; i < n;) {
+			uint32_t cp;
+			size_t w = ob_utf8_decode(s, n, i, &cp);
+			/* the decoder falls back to the lead byte, one byte
+			   wide, exactly when the sequence is ill-formed, and
+			   a real one-byte codepoint is always below 0x80 */
+			if (w == 1 && cp >= 0x80)
+				wf = false;
+			i += w;
+			cps++;
+		}
+		h->cps = cps;
+		h->wf = wf;
+	}
+	return h->cps;
+}
+
+/* Codepoint index -> byte offset, memoizing the answer in the string's header.
+
+   An all-ASCII string skips the walk outright, which is the case that matters
+   for the compiler's own sources. For the rest, the cursor is what keeps a
+   sequential scan -- the shape of every loop that walks a string a character
+   at a time, the Oboe-written lexer's included -- O(1) per step rather than
+   O(n), which is the difference between linear and quadratic lexing.
+
+   Walking starts from whichever of the string's start, its end, or the cursor
+   is nearest. Backwards is only available for well-formed payloads, where a
+   codepoint boundary is the first byte at or below the target that is not a
+   continuation byte. That inference is precisely what the lossless decoding
+   above invalidates: in a truncated "E9 80" the 0x80 is a codepoint in its own
+   right, and nothing local to it says so, while in a well-formed "C3 A9" it is
+   not -- the two are indistinguishable from where they sit. So an ill-formed
+   payload only ever walks forwards, and lands back at the start when the
+   target is behind the cursor.
+
+   That distinction is not academic: a lexer reads byte_at(POS + 1) and then
+   byte_at(POS), so forward-only walking turns every single lookahead into a
+   rescan from the beginning of the file. */
+static size_t ob_cp_to_byte(const char *s, size_t cp_index)
+{
+	OboeStrHdr *h = ob_hdr(s);
+	size_t n = h->bytes, cps = ob_sclen(s);
+	size_t at_cp = 0, i = 0, best;
+
+	if (cp_index >= cps)
+		return n;
+	if (cps == n) /* all ASCII: the two indices are the same thing */
+		return cp_index;
+
+	best = cp_index; /* the distance from the start, our fallback anchor */
+	if (h->cur_cp <= cp_index) {
+		if (cp_index - h->cur_cp < best) {
+			best = cp_index - h->cur_cp;
+			at_cp = h->cur_cp;
+			i = h->cur_byte;
+		}
+	} else if (h->wf && h->cur_cp - cp_index < best) {
+		best = h->cur_cp - cp_index;
+		at_cp = h->cur_cp;
+		i = h->cur_byte;
+	}
+	if (h->wf && cps - cp_index < best) {
+		at_cp = cps;
+		i = n;
+	}
+
+	while (at_cp < cp_index) {
+		uint32_t cp;
+		i += ob_utf8_decode(s, n, i, &cp);
+		at_cp++;
+	}
+	while (at_cp > cp_index) {
+		do {
+			i--;
+		} while (i > 0 && ((unsigned char)s[i] & 0xC0) == 0x80);
+		at_cp--;
+	}
+	h->cur_cp = at_cp;
+	h->cur_byte = i;
+	return i;
+}
+
+/* The inverse, for the searches that work in bytes and report in codepoints. */
+static size_t ob_byte_to_cp(const char *s, size_t byte_off)
+{
+	size_t n = ob_slen(s), cps = ob_sclen(s), at = 0;
+
+	if (cps == n)
+		return byte_off;
+	for (size_t i = 0; i < n && i < byte_off; at++) {
+		uint32_t cp;
+		i += ob_utf8_decode(s, n, i, &cp);
+	}
+	return at;
 }
 
 /* Wraps a payload that came from ob_str_alloc, with no second copy. */
@@ -567,24 +780,36 @@ OboeValue ob_ord(OboeValue v)
 			 ob_string("ord() expects a string, got another type"));
 	if (v.as.s[0] == '\0')
 		ob_throw("ValueError", ob_string("ord() got an empty string"));
-	return ob_int((unsigned char)v.as.s[0]);
+	uint32_t cp;
+	ob_utf8_decode(v.as.s, ob_slen(v.as.s), 0, &cp);
+	return ob_int((int64_t)cp);
 }
 
 OboeValue ob_chr(OboeValue v)
 {
+	char buf[4];
+
 	if (v.tag != OB_INT)
 		ob_throw("TypeError",
 			 ob_string("chr() expects an int, got another type"));
-	if (v.as.i < 0 || v.as.i > 255)
+	if (v.as.i < 0 || v.as.i > 0x10FFFF)
 		ob_throw("ValueError",
-			 ob_string("chr() needs a byte value in 0..255"));
-	/* 0 would produce an empty string rather than a one-byte one, since
-	   strings are NUL-terminated; refuse it instead of lying about length */
+			 ob_string("chr() needs a codepoint in 0..1114111"));
+	/* a surrogate half is not a character and has no UTF-8 form; encoding
+	   one anyway is how ill-formed text gets minted out of valid input */
+	if (v.as.i >= 0xD800 && v.as.i <= 0xDFFF)
+		ob_throw("ValueError",
+			 ob_string("chr() cannot encode a surrogate half"));
+	/* 0 would produce an empty string rather than a one-character one,
+	   since strings are NUL-terminated; refuse it instead of lying about
+	   length */
 	if (v.as.i == 0)
 		ob_throw("ValueError",
 			 ob_string("chr(0) has no representable string value"));
-	char buf[2] = { (char)v.as.i, '\0' };
-	return ob_string(buf);
+	size_t n = ob_utf8_encode((uint32_t)v.as.i, buf);
+	char *out = ob_str_alloc(n);
+	memcpy(out, buf, n);
+	return ob_string_wrap(out);
 }
 
 OboeValue ob_input(void)
@@ -1792,9 +2017,11 @@ OboeValue ob_std_os_getenv(OboeValue name)
 }
 
 /* ---- iteration ----
-   One dispatch point behind every `for` form. Strings iterate by byte, matching
-   the rest of the runtime's byte-oriented string handling; multi-byte UTF-8
-   characters therefore come back one byte at a time. */
+   One dispatch point behind every `for` form. Strings iterate by codepoint, so
+   `for (c in s)` binds whole characters and the index a `pairs`/`ipairs` loop
+   sees is the same codepoint index .substr() and .slice() take. Sequential
+   access is what the cursor in the string header is for; walking a string this
+   way stays linear. */
 
 static void ob_iter_type_error(OboeValue v)
 {
@@ -1813,7 +2040,7 @@ int64_t ob_iter_len(OboeValue v)
 	case OB_DICT:
 		return (int64_t)v.as.dict->count;
 	case OB_STRING:
-		return (int64_t)ob_slen(v.as.s);
+		return (int64_t)ob_sclen(v.as.s);
 	default:
 		ob_iter_type_error(v);
 		return 0;
@@ -1845,10 +2072,14 @@ OboeValue ob_iter_value(OboeValue v, int64_t i)
 			return ob_null();
 		return v.as.dict->entries[i].value;
 	case OB_STRING: {
-		if (i < 0 || (size_t)i >= ob_slen(v.as.s))
+		if (i < 0 || (size_t)i >= ob_sclen(v.as.s))
 			return ob_null();
-		char one[2] = { v.as.s[i], '\0' };
-		return ob_string(one);
+		size_t at = ob_cp_to_byte(v.as.s, (size_t)i);
+		uint32_t cp;
+		size_t w = ob_utf8_decode(v.as.s, ob_slen(v.as.s), at, &cp);
+		char *one = ob_str_alloc(w);
+		memcpy(one, v.as.s + at, w);
+		return ob_string_wrap(one);
 	}
 	default:
 		ob_iter_type_error(v);
@@ -1900,34 +2131,56 @@ static int64_t ob_want_idx(OboeValue v, const char *method)
 
 static OboeValue ob_str_len(OboeValue s)
 {
-	return ob_int((int64_t)ob_slen(ob_want_str(s, "len")));
+	return ob_int((int64_t)ob_sclen(ob_want_str(s, "len")));
 }
 
+/* Case conversion is ASCII-only. Doing it properly is a Unicode table, not a
+   branch, and a half-done job that folded Latin-1 but not Greek would be worse
+   than an honest limit. Bytes at or above 0x80 are left exactly as they are,
+   which also means a multi-byte character survives unmangled -- toupper() is
+   locale-dependent above 127 and would otherwise be free to corrupt one. */
 OboeValue ob_str_upper(OboeValue s)
 {
-	char *out = strdup(ob_want_str(s, "upper"));
-	for (char *p = out; *p; p++)
-		*p = (char)toupper((unsigned char)*p);
-	return ob_string_take(out);
+	const char *in = ob_want_str(s, "upper");
+	size_t n = ob_slen(in);
+	char *out = ob_str_alloc(n);
+	for (size_t i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)in[i];
+		out[i] = c < 0x80 ? (char)toupper(c) : (char)c;
+	}
+	return ob_string_wrap(out);
 }
 
 OboeValue ob_str_lower(OboeValue s)
 {
-	char *out = strdup(ob_want_str(s, "lower"));
-	for (char *p = out; *p; p++)
-		*p = (char)tolower((unsigned char)*p);
-	return ob_string_take(out);
+	const char *in = ob_want_str(s, "lower");
+	size_t n = ob_slen(in);
+	char *out = ob_str_alloc(n);
+	for (size_t i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)in[i];
+		out[i] = c < 0x80 ? (char)tolower(c) : (char)c;
+	}
+	return ob_string_wrap(out);
 }
 
+/* Reverses codepoints, in one forward pass -- the byte-at-a-time version this
+   replaces turned any multi-byte character into invalid UTF-8. Combining marks
+   still end up on the wrong side of what they combine with; that needs grapheme
+   clusters, which is a table and a spec beyond this. */
 static OboeValue ob_str_reverse(OboeValue s)
 {
 	const char *in = ob_want_str(s, "reverse");
 	size_t n = ob_slen(in);
-	char *out = malloc(n + 1);
-	for (size_t i = 0; i < n; i++)
-		out[i] = in[n - 1 - i];
-	out[n] = '\0';
-	return ob_string_take(out);
+	char *out = ob_str_alloc(n);
+	size_t w = n;
+	for (size_t i = 0; i < n;) {
+		uint32_t cp;
+		size_t len = ob_utf8_decode(in, n, i, &cp);
+		w -= len;
+		memcpy(out + w, in + i, len);
+		i += len;
+	}
+	return ob_string_wrap(out);
 }
 
 OboeValue ob_str_trim(OboeValue s)
@@ -1953,9 +2206,14 @@ OboeValue ob_str_split(OboeValue s, OboeValue sep)
 	OboeValue out = ob_array_new();
 	size_t splen = ob_slen(sp);
 	if (splen == 0) {
-		for (const char *p = in; *p; p++) {
-			char one[2] = { *p, '\0' };
-			ob_array_push(out, ob_string(one));
+		size_t n = ob_slen(in);
+		for (size_t i = 0; i < n;) {
+			uint32_t cp;
+			size_t w = ob_utf8_decode(in, n, i, &cp);
+			char *one = ob_str_alloc(w);
+			memcpy(one, in + i, w);
+			ob_array_push(out, ob_string_wrap(one));
+			i += w;
 		}
 		return out;
 	}
@@ -1994,11 +2252,16 @@ static OboeValue ob_str_contains(OboeValue s, OboeValue needle)
 	return ob_bool(strstr(in, ob_want_str(needle, "contains")) != NULL);
 }
 
+/* Searched in bytes, reported in codepoints, so the answer can be fed straight
+   back to .substr()/.slice(). A hit always lands on a character boundary: a
+   valid UTF-8 sequence cannot start inside another one. */
 static OboeValue ob_str_index_of(OboeValue s, OboeValue needle)
 {
 	const char *in = ob_want_str(s, "index_of");
 	const char *hit = strstr(in, ob_want_str(needle, "index_of"));
-	return ob_int(hit ? (int64_t)(hit - in) : -1);
+	if (!hit)
+		return ob_int(-1);
+	return ob_int((int64_t)ob_byte_to_cp(in, (size_t)(hit - in)));
 }
 
 OboeValue ob_str_replace(OboeValue s, OboeValue from, OboeValue to)
@@ -2038,7 +2301,7 @@ OboeValue ob_str_replace(OboeValue s, OboeValue from, OboeValue to)
 OboeValue ob_str_substr(OboeValue s, OboeValue start, OboeValue len)
 {
 	const char *in = ob_want_str(s, "substr");
-	int64_t n = (int64_t)ob_slen(in);
+	int64_t n = (int64_t)ob_sclen(in);
 	int64_t a = ob_want_idx(start, "substr");
 	int64_t l = ob_want_idx(len, "substr");
 	if (a < 0)
@@ -2049,8 +2312,12 @@ OboeValue ob_str_substr(OboeValue s, OboeValue start, OboeValue len)
 		l = 0;
 	if (a + l > n)
 		l = n - a;
-	char *out = ob_str_alloc((size_t)l);
-	memcpy(out, in + a, (size_t)l);
+	/* both bounds in codepoints; the cursor makes the second lookup a
+	   short hop from the first, and the next call a short hop from this */
+	size_t from = ob_cp_to_byte(in, (size_t)a);
+	size_t to = ob_cp_to_byte(in, (size_t)(a + l));
+	char *out = ob_str_alloc(to - from);
+	memcpy(out, in + from, to - from);
 	return ob_string_wrap(out);
 }
 
@@ -2318,7 +2585,7 @@ OboeValue ob_m_slice(OboeValue v, OboeValue start, OboeValue end)
 	if (v.tag == OB_ARRAY)
 		return ob_arr_slice(v, start, end);
 	if (v.tag == OB_STRING) {
-		int64_t n = (int64_t)ob_slen(v.as.s);
+		int64_t n = (int64_t)ob_sclen(v.as.s);
 		int64_t a = ob_want_idx(start, "slice"),
 			b = ob_want_idx(end, "slice");
 		if (a < 0)

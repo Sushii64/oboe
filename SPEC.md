@@ -357,6 +357,7 @@ Importing `math`, `random` or `os` works with no file on disk, they're built int
 - `os.is_dir(path)`, `os.mkdir(path)` (recursive, like `mkdir -p`; an existing directory counts as success), `os.listdir(path)` (entry names without `.` and `..`, sorted by byte order so a directory walk is reproducible; throws `os.FileNotFoundError` when the path isn't a readable directory). `os.exists` cannot tell a directory from a file — that is what `os.is_dir` is for.
 - `os.realpath(path)` is the canonical absolute path, with `.`, `..` and symlinks resolved, or `null` when the path does not resolve. Two names for the same file always give the same string.
 - `os.script_file()` is the absolute path of the running script and `os.script_dir()` its directory; `os.project_root()` is the nearest ancestor directory containing a project.jsonc, falling back to `os.script_dir()`. All three are resolved at compile time.
+- `os.exe_file()` is the absolute path of the running executable and `os.exe_dir()` its directory, both resolved at runtime by asking the kernel (`readlink()` on Linux, `_NSGetExecutablePath` on mac, `sysctl KERN_PROC_PATHNAME` on FreeBSD and NetBSD, and `GetModuleFileNameA()` on Windows). It is currently `null` on OpenBSD which does not have a way to ask.
 
 ### Methods on primitives
 

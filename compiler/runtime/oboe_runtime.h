@@ -269,6 +269,9 @@ OboeValue ob_std_os_exit(OboeValue code); /* does not return */
 OboeValue
 ob_std_os_realpath(OboeValue path); /* canonical absolute path, or null */
 OboeValue ob_std_os_is_dir(OboeValue path);
+/* path and dir of the running binary (not the source); null if the OS can't say (OpenBSD) */
+OboeValue ob_std_os_exe_file(void);
+OboeValue ob_std_os_exe_dir(void);
 OboeValue ob_std_os_mkdir(OboeValue path); /* mkdir -p; existing is success */
 /* entry names, no "." or "..", sorted by byte order so a directory walk is
    reproducible; throws os.FileNotFoundError when the path isn't a readable

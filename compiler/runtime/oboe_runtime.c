@@ -38,6 +38,12 @@
 #define ob_mkdir_one(p) mkdir(p, 0755)
 #define ob_realpath(p, buf) realpath((p), (buf))
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h> /* _NSGetExecutablePath */
+#endif
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__NetBSD__)
+#include <sys/sysctl.h> /* KERN_PROC_PATHNAME */
+#endif
 
 /* POSIX lets PATH_MAX be undefined when the limit is not fixed; 4096 is what
    the compiler's own path buffers already assume. */
@@ -1934,6 +1940,82 @@ OboeValue ob_std_os_realpath(OboeValue path)
 	char *got = ob_realpath(p, buf);
 	free(p);
 	return got ? ob_string(got) : ob_null();
+}
+
+/* path of the running binary, per-OS syscall, memoized; null if unaskable (OpenBSD) */
+static const char *ob_exe_path(void)
+{
+	static char buf[PATH_MAX];
+	static bool resolved = false;
+	static bool ok = false;
+
+	if (resolved)
+		return ok ? buf : NULL;
+	resolved = true;
+#if defined(_WIN32)
+	DWORD n = GetModuleFileNameA(NULL, buf, sizeof buf);
+	ok = n > 0 && n < sizeof buf;
+#elif defined(__APPLE__)
+	char raw[PATH_MAX]; /* _NSGetExecutablePath result may hold symlinks/../; resolve */
+	uint32_t size = sizeof raw;
+	ok = _NSGetExecutablePath(raw, &size) == 0 &&
+	     ob_realpath(raw, buf) != NULL;
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
+	int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+	size_t len = sizeof buf;
+	ok = sysctl(mib, 4, buf, &len, NULL, 0) == 0 && len > 0;
+#elif defined(__NetBSD__)
+	int mib[4] = { CTL_KERN, KERN_PROC_ARGS, -1, KERN_PROC_PATHNAME };
+	size_t len = sizeof buf;
+	ok = sysctl(mib, 4, buf, &len, NULL, 0) == 0 && len > 0;
+#elif defined(__linux__)
+	ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+	if (n > 0) {
+		buf[n] = '\0';
+		ok = true;
+	}
+#endif
+	return ok ? buf : NULL;
+}
+
+static bool ob_is_sep(char c)
+{
+#ifdef _WIN32
+	return c == '/' || c == '\\';
+#else
+	return c == '/';
+#endif
+}
+
+OboeValue ob_std_os_exe_file(void)
+{
+	const char *p = ob_exe_path();
+	return p ? ob_string(p) : ob_null();
+}
+
+/* hand-rolled dirname: POSIX dirname(3) may rewrite its argument; accepts either separator */
+OboeValue ob_std_os_exe_dir(void)
+{
+	const char *p = ob_exe_path();
+	if (!p)
+		return ob_null();
+
+	size_t n = strlen(p);
+	while (n > 1 && ob_is_sep(p[n - 1]))
+		n--;
+	while (n > 0 && !ob_is_sep(p[n - 1]))
+		n--;
+	while (n > 1 && ob_is_sep(p[n - 1]))
+		n--;
+	if (n == 0)
+		return ob_string(".");
+
+	char dir[PATH_MAX];
+	if (n >= sizeof dir)
+		n = sizeof dir - 1;
+	memcpy(dir, p, n);
+	dir[n] = '\0';
+	return ob_string(dir);
 }
 
 OboeValue ob_std_os_is_dir(OboeValue path)

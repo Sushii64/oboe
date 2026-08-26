@@ -152,6 +152,9 @@ static const StdMember k_std_os[] = {
 	{ "mkdir", 1 },
 	{ "listdir", 1 },
 	{ "realpath", 1 },
+	/* runtime-resolved binary location */
+	{ "exe_file", 0 },
+	{ "exe_dir", 0 },
 	/* resolved at compile time — see emit_script_path_builtins */
 	{ "script_file", 0 },
 	{ "script_dir", 0 },

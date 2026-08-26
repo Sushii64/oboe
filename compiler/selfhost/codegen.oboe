@@ -88,6 +88,8 @@ var STD_OS = { "run": 1, "spawn": 1, "read_file": 1, "write_file": 2,
 	       "append_file": 2, "exists": 1, "remove": 1, "getenv": 1,
 	       "exit": 1, "is_dir": 1, "mkdir": 1, "listdir": 1,
 	       "realpath": 1,
+	       // runtime-resolved binary location
+	       "exe_file": 0, "exe_dir": 0,
 	       // resolved at compile time -- see emit_script_path_builtins
 	       "script_file": 0, "script_dir": 0, "project_root": 0 }
 

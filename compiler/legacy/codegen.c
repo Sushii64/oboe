@@ -187,6 +187,15 @@ static const StdMember *std_member_lookup(const char *module,
 	return NULL;
 }
 
+/* built-in stdlib members that are values rather than functions; the returned
+   string is the C expression the member compiles to */
+static const char *std_const_lookup(const char *module, const char *member)
+{
+	if (strcmp(module, "math") == 0 && strcmp(member, "pi") == 0)
+		return "ob_float(3.141592653589793)";
+	return NULL;
+}
+
 /* trailing optional arguments a built-in stdlib member accepts on top of its
    arity. An omitted one is padded with a null at the call site, so the C
    function keeps a fixed signature and decides for itself what a null means. */
@@ -970,6 +979,16 @@ static char *gen_member_access_ex(Expr *field_expr, bool for_call, bool safe,
 				   g_current_prefix) == 0) {
 				const char *mod = g_import_aliases[i].module;
 				if (module_is_builtin(mod)) {
+					const char *cst =
+						std_const_lookup(mod, name);
+					if (cst) {
+						if (for_call)
+							codegen_error(
+								field_expr->line,
+								fmt("'%s.%s' is not a function",
+								    mod, name));
+						return strdup(cst);
+					}
 					std_member_lookup(mod, name,
 							  field_expr->line);
 					if (!for_call)
@@ -1280,10 +1299,18 @@ static char *gen_expr(Expr *e)
 				    strcmp(g_import_directs[i].owner,
 					   g_current_prefix) == 0) {
 					if (module_is_builtin(
-						    g_import_directs[i].module))
+						    g_import_directs[i].module)) {
+						const char *icst =
+							std_const_lookup(
+								g_import_directs[i]
+									.module,
+								e->as.ident);
+						if (icst)
+							return strdup(icst);
 						codegen_error(
 							e->line,
 							"this standard-library member is a function; call it");
+					}
 					return fmt("%s__%s",
 						   g_import_directs[i].module,
 						   e->as.ident);
@@ -1611,6 +1638,17 @@ static char *gen_expr(Expr *e)
 					Buf b = { 0 };
 					if (module_is_builtin(
 						    g_import_directs[i].module)) {
+						if (std_const_lookup(
+							    g_import_directs[i]
+								    .module,
+							    callee->as.ident))
+							codegen_error(
+								e->line,
+								fmt("'%s.%s' is not a function",
+								    g_import_directs[i]
+									    .module,
+								    callee->as
+									    .ident));
 						const StdMember *sm =
 							std_member_lookup(
 								g_import_directs[i]
@@ -1752,7 +1790,10 @@ static char *gen_expr(Expr *e)
 					    strcmp(g_import_aliases[i].owner,
 						   g_current_prefix) == 0 &&
 					    module_is_builtin(
-						    g_import_aliases[i].module)) {
+						    g_import_aliases[i].module) &&
+					    !std_const_lookup(
+						    g_import_aliases[i].module,
+						    callee->as.field.name)) {
 						const StdMember *sm =
 							std_member_lookup(
 								g_import_aliases[i]

@@ -1,0 +1,5 @@
+import pi from math
+
+func main(array args) {
+    print(pi())
+}

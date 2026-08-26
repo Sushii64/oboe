@@ -349,6 +349,7 @@ l.method()
 
 Importing `math`, `random` or `os` works with no file on disk, they're built into the language runtime. (A file of the same name next to your code still wins, so nothing is reserved.)
 
+- `math.pi` is the constant 3.141592653589793 (not a function).
 - `math.abs(n)`, `math.min(a, b)`, `math.max(a, b)`, `math.pow(base, exp)`, `math.sqrt(n)`, `math.floor(n)`, `math.ceil(n)`, `math.round(n)`. Integer arguments get exact integer math (`pow` is integer exponentiation, `sqrt` is the floor square root); as soon as any argument is a float the result is floating point. `floor`/`ceil`/`round` always return an int.
 - `random.seed(n)`, `random.randint(lo, hi)` (inclusive on both ends, like Python), `random.choice(array)` (a deterministic PRNG: the same seed gives the same sequence on every platform.)
 - `os.run(cmd)` runs a command through the shell and returns its exit code. `os.run(cmd, hide_output)` also captures the command's output and returns a dict instead: `{ "code": <exit code>, "output": <string> }`. stderr is merged into the captured output, which is echoed to the terminal as it arrives unless `hide_output` is truthy. The capture stops at the first NUL byte, since Oboe strings are C strings.

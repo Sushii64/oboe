@@ -1,0 +1,11 @@
+import math
+import math as m
+import pi from math
+
+func main(array args) {
+    print(math.pi)
+    print(m.pi)
+    print(pi)
+    print(math.round(math.pi * 100) == 314)
+    print(math.pi is float)
+}

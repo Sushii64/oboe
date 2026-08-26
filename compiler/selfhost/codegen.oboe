@@ -122,6 +122,15 @@ func std_member_lookup(str module, str member, int line) {
 // function keeps a fixed signature and decides for itself what a null means.
 var STD_OPTIONAL = { "os.run": 1 }
 
+// Built-in stdlib members that are values rather than functions. The table
+// value is the C expression the member compiles to.
+var STD_CONSTS = { "math.pi": "ob_float(3.141592653589793)" }
+
+func std_const_lookup(str module, str member) {
+	var key = module + "." + member
+	return STD_CONSTS.has(key) ? STD_CONSTS[key] : null
+}
+
 func std_member_optional(str module, str member) {
 	var key = module + "." + member
 	return STD_OPTIONAL.has(key) ? STD_OPTIONAL[key] : 0
@@ -849,6 +858,18 @@ func gen_member_access_ex(field_expr, bool for_call, bool safe, int argc) {
 			}
 			var mod = ia["module"]
 			if (module_is_builtin(mod)) {
+				var cst = std_const_lookup(mod, name)
+				if (cst != null) {
+					if (for_call) {
+						codegen_error(line,
+							      "'" + mod + "." +
+								      name +
+								      "' is not a function")
+					}
+					return { "code": cst,
+						 "first_arg": null,
+						 "decl": null }
+				}
 				std_member_lookup(mod, name, line)
 				if (!for_call) {
 					codegen_error(line,
@@ -1295,6 +1316,12 @@ func gen_call_ident(e) {
 		}
 		var db = []
 		if (module_is_builtin(idr["module"])) {
+			if (std_const_lookup(idr["module"], ident) != null) {
+				codegen_error(e["line"],
+					      "'" + idr["module"] + "." +
+						      ident +
+						      "' is not a function")
+			}
 			var arity = std_member_lookup(idr["module"], ident,
 						      e["line"])
 			var opt = std_member_optional(idr["module"], ident)
@@ -1386,7 +1413,9 @@ func gen_call_field(e) {
 		for (ia in IMPORT_ALIASES) {
 			if (ia["local_name"] == mobj["ident"] and
 			    ia["owner"] == CURRENT_PREFIX and
-			    module_is_builtin(ia["module"])) {
+			    module_is_builtin(ia["module"]) and
+			    std_const_lookup(ia["module"], callee["name"]) ==
+				    null) {
 				var arity = std_member_lookup(ia["module"],
 							      callee["name"],
 							      e["line"])
@@ -1459,6 +1488,11 @@ func gen_expr(e) {
 					continue
 				}
 				if (module_is_builtin(idr["module"])) {
+					var icst = std_const_lookup(
+						idr["module"], e["ident"])
+					if (icst != null) {
+						return icst
+					}
 					codegen_error(e["line"],
 						      "this standard-library member is a function; call it")
 				}

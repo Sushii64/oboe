@@ -897,6 +897,27 @@ func parse_block(Parser p) {
 
 // ---- top-level declarations ----
 
+// A leading plain-string statement in a body is that declaration's docstring.
+func take_doc(array body) {
+	if (body.len() == 0) {
+		return null
+	}
+	var s = body[0]
+	if (s["kind"] != "STMT_EXPR") {
+		return null
+	}
+	var e = s["expr"]
+	if (e["kind"] != "EXPR_STRING") {
+		return null
+	}
+	var parts = e["str_parts"]
+	if (parts.len() != 1 or parts[0]["is_expr"]) {
+		return null
+	}
+	body.remove_at(0)
+	return parts[0]["literal"]
+}
+
 func parse_func(Parser p, bool is_static, bool is_private) {
 	var line = peek(p)["line"]
 	// `[ReturnType] func name(params) { body }` -- the return type precedes
@@ -904,9 +925,11 @@ func parse_func(Parser p, bool is_static, bool is_private) {
 	expect(p, "T_FUNC", "expected 'func'")
 	var name = expect(p, "T_IDENT", "expected function name")
 	var params = parse_params(p)
+	var body = parse_block(p)
+	var doc = take_doc(body)
 	return { "name": name["text"], "return_type": null, "params": params,
 		 "is_static": is_static, "is_private": is_private,
-		 "op_symbol": null, "body": parse_block(p), "line": line }
+		 "op_symbol": null, "doc": doc, "body": body, "line": line }
 }
 
 // `operator <sym> (params) { body }` -- the T_OPERATOR keyword has already been
@@ -919,9 +942,11 @@ func parse_operator_decl(Parser p) {
 		fail(p, "expected an operator symbol after 'operator'")
 	}
 	var params = parse_params(p)
+	var body = parse_block(p)
+	var doc = take_doc(body)
 	return { "name": "operator", "return_type": null, "params": params,
 		 "is_static": false, "is_private": false,
-		 "op_symbol": sym["text"], "body": parse_block(p),
+		 "op_symbol": sym["text"], "doc": doc, "body": body,
 		 "line": line }
 }
 
@@ -934,6 +959,17 @@ func parse_class(Parser p) {
 		parent_name = pn["text"]
 	}
 	expect(p, "T_LBRACE", "expected '{' to start class body")
+	// a class has no body statements to lift a docstring out of, so a
+	// leading string in the class body is the one instead
+	var doc = null
+	if (check(p, "T_STRING")) {
+		var dt = advance(p)
+		var dparts = parse_string_literal_parts(p, dt["text"])
+		if (dparts.len() != 1 or dparts[0]["is_expr"]) {
+			fail(p, "a class docstring cannot interpolate")
+		}
+		doc = dparts[0]["literal"]
+	}
 	var fields = []
 	var methods = []
 	while (!check(p, "T_RBRACE") and !check(p, "T_EOF")) {
@@ -983,7 +1019,8 @@ func parse_class(Parser p) {
 	}
 	expect(p, "T_RBRACE", "expected '}' to close class")
 	return { "name": name["text"], "parent_name": parent_name,
-		 "fields": fields, "methods": methods, "line": line }
+		 "doc": doc, "fields": fields, "methods": methods,
+		 "line": line }
 }
 
 func parse_import(Parser p) {

@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// © 2026 Sushii64
+// © 2026 robinpie
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License version 2 as
+// published by the Free Software Foundation.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// Renders a parsed file's docstrings as markdown, for `oboe doc`.
+//
+// Declared fields are deliberately left out. A class's real field set is
+// inferred from the `this.x = ...` assignments across its methods.
+
+var OUT = []
+
+func emit(str s) {
+	OUT.push(s)
+}
+
+// Renders a default-value expression back to something close to its source.
+func render_default(e) {
+	var k = e["kind"]
+	if (k == "EXPR_INT") {
+		return str(e["int_val"])
+	}
+	if (k == "EXPR_FLOAT") {
+		return str(e["float_val"])
+	}
+	if (k == "EXPR_BOOL") {
+		return e["bool_val"] ? "true" : "false"
+	}
+	if (k == "EXPR_NULL") {
+		return "null"
+	}
+	if (k == "EXPR_IDENT") {
+		return e["ident"]
+	}
+	if (k == "EXPR_STRING") {
+		var parts = e["str_parts"]
+		if (parts.len() == 1 and !parts[0]["is_expr"]) {
+			return "\"" + parts[0]["literal"] + "\""
+		}
+	}
+	return "..."
+}
+
+func render_params(array params) {
+	var out = []
+	for (p in params) {
+		var s = ""
+		if (p["type_name"] != null) {
+			s = p["type_name"] + " "
+		}
+		s = s + p["name"]
+		if (p["default_value"] != null) {
+			s = s + " = " + render_default(p["default_value"])
+		}
+		out.push(s)
+	}
+	return out.join(", ")
+}
+
+// `int add(int x, int y)` (the return type leads, as it does in the source)
+func signature(f, str name) {
+	var s = ""
+	if (f["return_type"] != null) {
+		s = f["return_type"] + " "
+	}
+	return s + name + "(" + render_params(f["params"]) + ")"
+}
+
+func emit_doc(d) {
+	if (d == null) {
+		emit("*Undocumented.*\n\n")
+		return null
+	}
+	emit(d + "\n\n")
+}
+
+func emit_func(f, str heading, str name) {
+	emit(heading + " `" + signature(f, name) + "`\n\n")
+	emit_doc(f["doc"])
+}
+
+func emit_class(c) {
+	var title = c["name"]
+	if (c["parent_name"] != null) {
+		title = title + " extends " + c["parent_name"]
+	}
+	emit("### `class " + title + "`\n\n")
+	emit_doc(c["doc"])
+	for (m in c["methods"]) {
+		if (m["is_private"]) {
+			continue
+		}
+		var name = m["name"]
+		if (m["op_symbol"] != null) {
+			name = "operator " + m["op_symbol"]
+		}
+		emit_func(m, "####", name)
+	}
+}
+
+// The last path component; the caller has the path it was given on the command line.
+func basename(str p) {
+	var i = p.len() - 1
+	while (i >= 0) {
+		var c = p.substr(i, 1)
+		if (c == "/" or c == "\\") {
+			return p.substr(i + 1, p.len() - i - 1)
+		}
+		i = i - 1
+	}
+	return p
+}
+
+// Markdown for one parsed file. 
+func render_docs(array decls, str filename) {
+	OUT = []
+	emit("# " + basename(filename) + "\n\n")
+
+	var funcs = []
+	var classes = []
+	var events = []
+	for (d in decls) {
+		var k = d["kind"]
+		if (k == "DECL_FUNC" or k == "DECL_OPERATOR") {
+			if (!d["func"]["is_private"]) {
+				funcs.push(d["func"])
+			}
+		} else if (k == "DECL_CLASS") {
+			classes.push(d["klass"])
+		} else if (k == "DECL_EVENT") {
+			events.push(d)
+		}
+	}
+
+	if (funcs.len() > 0) {
+		emit("## Functions\n\n")
+		for (f in funcs) {
+			var name = f["name"]
+			if (f["op_symbol"] != null) {
+				name = "operator " + f["op_symbol"]
+			}
+			emit_func(f, "###", name)
+		}
+	}
+	if (classes.len() > 0) {
+		emit("## Classes\n\n")
+		for (c in classes) {
+			emit_class(c)
+		}
+	}
+	if (events.len() > 0) {
+		emit("## Events\n\n")
+		for (e in events) {
+			emit("### `event " + e["name"] + "(" +
+			     render_params(e["params"]) + ")`\n\n")
+		}
+	}
+	return OUT.join("")
+}

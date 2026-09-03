@@ -25,7 +25,7 @@ Produces `bin/oboe` (the CLI, in C) and `bin/oboec` (the compiler proper, writte
 
 Notes about miscellaneous/old/irrelevant crap:
 
-- `selfhost/{lexer,parser,codegen,dump,diag,hostos,main}.oboe`: `oboec`. `bin/oboe` execs it for every `run`, `build` and `install`. Their C counterparts moved to `legacy/` and are no longer a front-end; they exist as the reference the gates below diff against, which will stop being useful when Oboe drifts enough
+- `selfhost/{lexer,parser,codegen,dump,docs,diag,hostos,main}.oboe`: `oboec`. `bin/oboe` execs it for every `run`, `build` and `install`. Their C counterparts moved to `legacy/` and are no longer a front-end; they exist as the reference the gates below diff against, which will stop being useful when Oboe drifts enough
 - `selfhost/mini/` is a compiler for a small Oboe-like subset, written in Oboe. It was the spike that proved the language could host a compiler at all, and it stays as a cheap regression test engine for the features that made that possible (break/continue, short-circuit `and`/`or`, `ord`, dict-shaped AST nodes, `eprint` + `os.exit`).
 
 ### Bootstrap
@@ -50,6 +50,8 @@ I'm testing this based on the selfhoster emitting bytes identical to its C count
 - `selfhost_codegen`: the same for `--emit-c`, over that corpus plus every input in `tests/helpers/codegen_errors.txt`, plus a small project tree the suite builds in `mktemp -d` (the project's `.oboe/libraries` search root and `os.project_root()` cannot be committed fixtures, because `.gitignore` excludes `.oboe/`). This one compares stdout and stderr separately: a codegen error can fire partway through emission, and the two compilers reach a merged stream in a different order, since C's stdout is block-buffered until exit while Oboe's `eprint` flushes stdout first. Both must still produce the same C, the same diagnostic and the same status.
 - `selfhost_lexer_coverage` / `selfhost_parser_coverage` / `selfhost_codegen_coverage`: agreement over constructs the corpus never builds proves nothing, so these assert that it produces every `TokenType`, every `ExprKind`/`StmtKind`/`DeclKind`/`ForIterKind`, and every runtime entry point named in a string literal in `codegen.c` (every operator fallback, primitive method, coercion and type check). All three derive the expected set from the source, so adding one that nothing exercises fails the suite.
 
+`docs.oboe` has no C counterpart.
+
 `tests/helpers/parser_torture.oboe` tests the grammar corners. Much of it is deliberately strange, in particular a block of expressions split so that each operator sits on its own line, which is the only way a wrong line-capture point in the parser becomes visible. `tests/codegen_corners.oboe` does the same for emission orderings that only differ when a program is shaped a particular way. For example, a class declared before its parent, an exact-count constructor overload behind one whose defaults also fit, a string that looks like an import.
 
 `oboec` gets the OS it targets by default from `selfhost/hostos.oboe`, which is a per-OS module file rather than a constant: that is the mechanism the language already has for this, and `hostos.oboe`/`hostos.macos.oboe`/`hostos.windows.oboe` reproduce exactly the three-way `#if` in `codegen.c`.
@@ -71,6 +73,7 @@ bin/oboe remove <pkg>                   # deletes a package's files and dependen
 bin/oboe get <pkg>[@<constraint>]       # fetch a library into .oboe/libraries
 bin/oboe install <pkg>[@<constraint>]   # fetch, build and place a tool in $OBOE_HOME/bin
 bin/oboe publish [--dry-run]            # pack this project and upload it
+bin/oboe doc <file>                     # the file's docstrings as markdown, on stdout
 bin/oboe sema <file>...                 # sha256 in the wire form; `-` reads stdin
     [--registry katare://host[:port]/]  # else $OBOE_REGISTRY, else project.jsonc, else built-in
 bin/oboe --version                      # `oboe <version> (<host os>)`; -V is the same

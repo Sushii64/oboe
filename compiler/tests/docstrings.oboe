@@ -1,0 +1,49 @@
+func documented(int x) {
+	"Doubles its argument."
+	return x * 2
+}
+
+func doc_only() {
+	"A body that is nothing but a docstring."
+}
+
+func side() {
+	print("the interpolation ran")
+	return "s"
+}
+
+func interpolating() {
+	// `${...}` can call something, so this is a statement, not a docstring
+	"${side()}"
+	return 1
+}
+
+func two_strings() {
+	"The docstring."
+	"An ordinary expression statement, which is evaluated and discarded."
+	return 2
+}
+
+class Counter {
+	"Counts things."
+
+	func init(this) {
+		"Starts at zero."
+		this.n = 0
+	}
+
+	func bump(this) {
+		this.n = this.n + 1
+		return this.n
+	}
+}
+
+func main(array args) {
+	print(documented(21))
+	print(doc_only())
+	print(interpolating())
+	print(two_strings())
+	var c = Counter()
+	c.bump()
+	print(c.bump())
+}

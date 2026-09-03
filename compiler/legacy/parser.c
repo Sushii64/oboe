@@ -989,6 +989,25 @@ static void parse_block(Parser *p, Stmt ***out_body, int *out_count)
 	*out_count = count;
 }
 
+/* A leading plain-string statement in a body is that declaration's docstring.
+   Codegen never sees it */
+static char *take_doc(Stmt **body, int *count)
+{
+	if (*count == 0 || body[0]->kind != STMT_EXPR)
+		return NULL;
+	Expr *e = body[0]->as.expr_stmt.expr;
+	if (!e || e->kind != EXPR_STRING)
+		return NULL;
+	StringPart *sp = e->as.str_parts;
+	if (!sp || sp->next || sp->is_expr)
+		return NULL;
+	char *doc = strdup(sp->literal);
+	for (int i = 1; i < *count; i++)
+		body[i - 1] = body[i];
+	(*count)--;
+	return doc;
+}
+
 /* ---------- top-level declarations ---------- */
 static FuncDecl *parse_func(Parser *p, bool is_static, bool is_private)
 {
@@ -1007,6 +1026,7 @@ static FuncDecl *parse_func(Parser *p, bool is_static, bool is_private)
 	f->params = params;
 	f->is_static = is_static;
 	f->is_private = is_private;
+	f->doc = take_doc(body, &count);
 	f->body = body;
 	f->body_count = count;
 	f->line = line;
@@ -1027,6 +1047,7 @@ static FuncDecl *parse_operator_decl(Parser *p)
 	f->op_symbol = strdup(sym->text);
 	f->params = parse_params(p);
 	parse_block(p, &f->body, &f->body_count);
+	f->doc = take_doc(f->body, &f->body_count);
 	f->line = line;
 	return f;
 }
@@ -1041,6 +1062,17 @@ static ClassDecl *parse_class(Parser *p)
 		parent_name = strdup(pn->text);
 	}
 	expect(p, T_LBRACE, "expected '{' to start class body");
+	/* a class has no body statements to lift a docstring out of, so a
+	   leading string in the class body is the one instead */
+	char *doc = NULL;
+	if (check(p, T_STRING)) {
+		Token *dt = advance(p);
+		StringPart *dp =
+			parse_string_literal_parts(p, dt->text, dt->line);
+		if (!dp || dp->next || dp->is_expr)
+			fail(p, "a class docstring cannot interpolate");
+		doc = strdup(dp->literal);
+	}
 	FieldDecl head = { 0 };
 	FieldDecl *ftail = &head;
 	FuncDecl **methods = NULL;
@@ -1105,6 +1137,7 @@ static ClassDecl *parse_class(Parser *p)
 	ClassDecl *c = calloc(1, sizeof(ClassDecl));
 	c->name = strdup(name->text);
 	c->parent_name = parent_name;
+	c->doc = doc;
 	c->fields = head.next;
 	c->methods = methods;
 	c->method_count = mcount;

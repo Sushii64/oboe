@@ -17,6 +17,7 @@ oboe tidy # Installs whatever project.jsonc declares and .oboe/lock does not alr
 oboe publish # Packs the current project into a kabuk archive and uploads it.
     --dry-run # Print the file list, size and digest without uploading.
 oboe sema <file>... # Prints each file's sha256 in the wire form. `-` reads stdin.
+oboe doc <file> # Prints the file's docstrings as markdown, on stdout. One file, not its imports.
 
 oboe --version # Prints `oboe <version> (<host os>)`, e.g. `oboe 1.0.0 (linux)`. `-V` is the same.
 oboe --help    # Prints the usage summary and exits successfully. `-h` is the same.
@@ -199,6 +200,34 @@ Omitting a parameter that has no default is a compile error naming it (`missing 
 - String literals use double quotes.
 - Interpolation uses `"${name}"` syntax for embedding expressions.
 - String concatenation/formatting can call `str(x)` to convert non-strings.
+
+## Docstrings
+
+The first statement of a function, method or operator body may be a plain string literal, which documents it rather than running.
+
+```
+int func add(int x, int y) {
+    "Adds two numbers."
+    return x + y
+}
+```
+
+A class has no body statements to lift one out of, so a leading string in the class body is its docstring instead.
+
+```
+class Counter {
+    "Counts things."
+
+    func init(this) {
+        "Starts at zero."
+        this.n = 0
+    }
+}
+```
+
+A string that interpolates is never a docstring: `${...}` can call something.
+
+Docstrings are not readable from the running program. `oboe doc <file>` renders them as markdown, skipping `private` declarations.
 
 ## Classes
 

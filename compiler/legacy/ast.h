@@ -225,6 +225,7 @@ struct Param {
 struct FuncDecl {
 	char *name;
 	char *return_type; /* may be NULL */
+	char *doc; /* leading plain-string statement of the body; may be NULL */
 	Param *params;
 	bool is_static;
 	bool is_private;
@@ -247,6 +248,7 @@ struct FieldDecl {
 struct ClassDecl {
 	char *name;
 	char *parent_name; /* may be NULL */
+	char *doc; /* leading string in the class body; may be NULL */
 	FieldDecl *fields;
 	FuncDecl **methods;
 	int method_count;

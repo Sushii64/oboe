@@ -1047,10 +1047,34 @@ static int cmd_emit_c(const char *path)
 	return 0;
 }
 
+/* `oboe doc <file>` -- markdown for a file's docstrings, on stdout. The
+   rendering lives in selfhost/docs.oboe. */
+static int cmd_doc(const char *path)
+{
+	if (access(path, R_OK) != 0) {
+		fprintf(stderr, "oboe: cannot read '%s'\n", path);
+		return 1;
+	}
+	char *home = oboe_home();
+	char oboec[4096];
+	snprintf(oboec, sizeof oboec, "%s/oboec", home);
+	free(home);
+	if (access(oboec, X_OK) != 0) {
+		fprintf(stderr,
+			"oboe: cannot find the compiler at '%s' (run `make` to build it)\n",
+			oboec);
+		return 1;
+	}
+	char cmd[8192];
+	snprintf(cmd, sizeof cmd, "\"%s\" --docs \"%s\"", oboec, path);
+	/* oboec writes its own diagnostic to our stderr on a parse error */
+	return system(cmd) == 0 ? 0 : 1;
+}
+
 static void usage(FILE *out)
 {
 	fprintf(out,
-		"usage: oboe <init|run|build|tidy|get|install|remove|publish|sema> [args]\n"
+		"usage: oboe <init|run|build|doc|tidy|get|install|remove|publish|sema> [args]\n"
 		"       oboe --version\n");
 }
 
@@ -1155,6 +1179,13 @@ int main(int argc, char **argv)
 	}
 	if (strcmp(cmd, "install") == 0) {
 		return cmd_install(argc - 2, argv + 2);
+	}
+	if (strcmp(cmd, "doc") == 0) {
+		if (argc < 3) {
+			fprintf(stderr, "oboe: doc needs a file\n");
+			return 1;
+		}
+		return cmd_doc(argv[2]);
 	}
 	if (strcmp(cmd, "dump-tokens") == 0) {
 		if (argc < 3) {

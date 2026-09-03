@@ -235,3 +235,59 @@ func line_capture() {
 }
 
 func empty() { }
+
+// ---- docstrings ----
+// A leading plain string is lifted into the declaration's `doc` and leaves the
+// body; anything else in that position stays an ordinary statement, so the
+// dumps below are where the two parsers have to agree on which is which.
+func documented(int a, str b = "x") {
+	"A docstring, with a \"quote\" and a\nnewline in it."
+	return a
+}
+
+func doc_only() {
+	"Nothing but a docstring."
+}
+
+func not_a_doc() {
+	// interpolation could call something, so this stays a statement
+	"${documented(1)}"
+	return 0
+}
+
+func second_string_is_a_statement() {
+	"The docstring."
+	"An ordinary expression statement."
+	return 0
+}
+
+operator <=> (int a, int b) {
+	"An operator can carry one too."
+	return a - b
+}
+
+class Documented extends Base {
+	"A class docstring: no body statement to lift, so the string leads."
+	static int count = 0
+
+	func init(this) {
+		"Even the constructor."
+		this.n = 0
+	}
+
+	private func hidden(this) {
+		"A private method still parses one."
+		return this.n
+	}
+
+	operator + (this, Documented other) {
+		"And a method operator."
+		return this.n + other.n
+	}
+}
+
+class Undocumented {
+	func plain(this) {
+		return 1
+	}
+}

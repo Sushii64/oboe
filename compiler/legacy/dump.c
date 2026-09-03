@@ -123,7 +123,7 @@ void dump_tokens(Token *toks, int count, FILE *out)
 /* ---- AST ----
    An indented tree, two spaces per level, one node per line:
 
-       DECL_FUNC name="add" line=3 ret="int" static=0 private=0 op=-
+       DECL_FUNC name="add" line=3 ret="int" static=0 private=0 op=- doc=-
          params
            param name="x" type="int"
          body
@@ -421,6 +421,7 @@ static void dump_func(const char *label, FuncDecl *f, int depth, FILE *out)
 	fprintf(out, " static=%d private=%d", f->is_static ? 1 : 0,
 		f->is_private ? 1 : 0);
 	field_str(out, "op", f->op_symbol);
+	field_str(out, "doc", f->doc);
 	fputc('\n', out);
 	dump_params(f->params, depth + 1, out);
 	dump_body("body", f->body, f->body_count, depth + 1, out);
@@ -432,6 +433,7 @@ static void dump_class(ClassDecl *c, int depth, FILE *out)
 	fputs("DECL_CLASS", out);
 	field_str(out, "name", c->name);
 	field_str(out, "parent", c->parent_name);
+	field_str(out, "doc", c->doc);
 	fprintf(out, " line=%d\n", c->line);
 	ind(out, depth + 1);
 	fputs("fields\n", out);

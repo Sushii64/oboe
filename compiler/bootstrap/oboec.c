@@ -117,6 +117,7 @@ OboeValue parser__parse_try(OboeValue p);
 OboeValue parser__parse_throw(OboeValue p);
 OboeValue parser__parse_statement(OboeValue p);
 OboeValue parser__parse_block(OboeValue p);
+OboeValue parser__take_doc(OboeValue body);
 OboeValue parser__parse_func(OboeValue p, OboeValue is_static, OboeValue is_private);
 OboeValue parser__parse_operator_decl(OboeValue p);
 OboeValue parser__parse_class(OboeValue p);
@@ -138,6 +139,15 @@ OboeValue dump__dump_stmt(OboeValue s, OboeValue depth);
 OboeValue dump__dump_func(OboeValue label, OboeValue f, OboeValue depth);
 OboeValue dump__dump_class(OboeValue c, OboeValue depth);
 OboeValue dump__dump_ast(OboeValue decls);
+OboeValue docs__emit(OboeValue s);
+OboeValue docs__render_default(OboeValue e);
+OboeValue docs__render_params(OboeValue params);
+OboeValue docs__signature(OboeValue f, OboeValue name);
+OboeValue docs__emit_doc(OboeValue d);
+OboeValue docs__emit_func(OboeValue f, OboeValue heading, OboeValue name);
+OboeValue docs__emit_class(OboeValue c);
+OboeValue docs__basename(OboeValue p);
+OboeValue docs__render_docs(OboeValue decls, OboeValue filename);
 OboeValue codegen__std_module_members(OboeValue module);
 OboeValue codegen__std_member_lookup(OboeValue module, OboeValue member, OboeValue line);
 OboeValue codegen__std_const_lookup(OboeValue module, OboeValue member);
@@ -259,6 +269,7 @@ static OboeValue lexer__OPS1;
 static OboeValue lexer__CUSTOM_OPS;
 static OboeValue lexer__BUILTIN_OPS;
 static OboeValue dump__OUT;
+static OboeValue docs__OUT;
 static OboeValue codegen__CLASSES;
 static OboeValue codegen__CLASS_EMITTED;
 static OboeValue codegen__SOURCE_DIR;
@@ -294,10 +305,10 @@ static OboeValue codegen__TARGET_OS;
 static OboeValue codegen__LIB_ROOT;
 static OboeValue hostos__HOST_OS;
 
-static void __oboe_toplevel_7(void) {
+static void __oboe_toplevel_8(void) {
 }
 
-static void __oboe_toplevel_6(void) {
+static void __oboe_toplevel_7(void) {
     hostos__HOST_OS = ob_interpolate(1, ob_string(OBOEC_HOST_OS));
 }
 
@@ -3316,7 +3327,7 @@ OboeValue codegen__codegen_compile(OboeValue main_path) {
     return ob_null();
 }
 
-static void __oboe_toplevel_5(void) {
+static void __oboe_toplevel_6(void) {
     codegen__CLASSES = ({ OboeValue __a = ob_array_new(); __a; });
     codegen__CLASS_EMITTED = ({ OboeValue __a = ob_array_new(); __a; });
     codegen__SOURCE_DIR = ob_null();
@@ -3350,6 +3361,178 @@ static void __oboe_toplevel_5(void) {
     codegen__UNITS = ({ OboeValue __a = ob_array_new(); __a; });
     codegen__TARGET_OS = hostos__HOST_OS;
     codegen__LIB_ROOT = ob_string("");
+}
+
+OboeValue docs__emit(OboeValue s) {
+    (void)(ob_arr_push(docs__OUT, s));
+    return ob_null();
+}
+
+OboeValue docs__render_default(OboeValue e) {
+    OboeValue k = ob_index_get(e, ob_interpolate(1, ob_string("kind")));
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_INT")), ob_eq))) {
+        return ob_str(ob_index_get(e, ob_interpolate(1, ob_string("int_val"))));
+    }
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_FLOAT")), ob_eq))) {
+        return ob_str(ob_index_get(e, ob_interpolate(1, ob_string("float_val"))));
+    }
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_BOOL")), ob_eq))) {
+        return (ob_truthy(ob_index_get(e, ob_interpolate(1, ob_string("bool_val")))) ? (ob_interpolate(1, ob_string("true"))) : (ob_interpolate(1, ob_string("false"))));
+    }
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_NULL")), ob_eq))) {
+        return ob_interpolate(1, ob_string("null"));
+    }
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_IDENT")), ob_eq))) {
+        return ob_index_get(e, ob_interpolate(1, ob_string("ident")));
+    }
+    if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("EXPR_STRING")), ob_eq))) {
+        OboeValue parts = ob_index_get(e, ob_interpolate(1, ob_string("str_parts")));
+        if (ob_truthy(ob_bool(ob_truthy(ob_binop("==", ob_m_len(parts), ob_int(1LL), ob_eq)) && ob_truthy(ob_not(ob_index_get(ob_index_get(parts, ob_int(0LL)), ob_interpolate(1, ob_string("is_expr")))))))) {
+            return ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("\"")), ob_index_get(ob_index_get(parts, ob_int(0LL)), ob_interpolate(1, ob_string("literal"))), ob_add), ob_interpolate(1, ob_string("\"")), ob_add);
+        }
+    }
+    return ob_interpolate(1, ob_string("..."));
+    return ob_null();
+}
+
+OboeValue docs__render_params(OboeValue params) {
+    OboeValue out = ({ OboeValue __a = ob_array_new(); __a; });
+    { OboeValue __it = params; int64_t __n = ob_iter_len(__it);
+    for (int64_t __i = 0; __i < __n; __i++) {
+        OboeValue p = ob_iter_value(__it, __i);
+        OboeValue s = ob_string("");
+        if (ob_truthy(ob_binop("!=", ob_index_get(p, ob_interpolate(1, ob_string("type_name"))), ob_null(), ob_neq))) {
+            (void)((s = ob_binop("+", ob_index_get(p, ob_interpolate(1, ob_string("type_name"))), ob_interpolate(1, ob_string(" ")), ob_add)));
+        }
+        (void)((s = ob_binop("+", s, ob_index_get(p, ob_interpolate(1, ob_string("name"))), ob_add)));
+        if (ob_truthy(ob_binop("!=", ob_index_get(p, ob_interpolate(1, ob_string("default_value"))), ob_null(), ob_neq))) {
+            (void)((s = ob_binop("+", ob_binop("+", s, ob_interpolate(1, ob_string(" = ")), ob_add), docs__render_default(ob_index_get(p, ob_interpolate(1, ob_string("default_value")))), ob_add)));
+        }
+        (void)(ob_arr_push(out, s));
+    } }
+    return ob_arr_join(out, ob_interpolate(1, ob_string(", ")));
+    return ob_null();
+}
+
+OboeValue docs__signature(OboeValue f, OboeValue name) {
+    OboeValue s = ob_string("");
+    if (ob_truthy(ob_binop("!=", ob_index_get(f, ob_interpolate(1, ob_string("return_type"))), ob_null(), ob_neq))) {
+        (void)((s = ob_binop("+", ob_index_get(f, ob_interpolate(1, ob_string("return_type"))), ob_interpolate(1, ob_string(" ")), ob_add)));
+    }
+    return ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", s, name, ob_add), ob_interpolate(1, ob_string("(")), ob_add), docs__render_params(ob_index_get(f, ob_interpolate(1, ob_string("params")))), ob_add), ob_interpolate(1, ob_string(")")), ob_add);
+    return ob_null();
+}
+
+OboeValue docs__emit_doc(OboeValue d) {
+    if (ob_truthy(ob_binop("==", d, ob_null(), ob_eq))) {
+        (void)(docs__emit(ob_interpolate(1, ob_string("*Undocumented.*\n\n"))));
+        return ob_null();
+    }
+    (void)(docs__emit(ob_binop("+", d, ob_interpolate(1, ob_string("\n\n")), ob_add)));
+    return ob_null();
+}
+
+OboeValue docs__emit_func(OboeValue f, OboeValue heading, OboeValue name) {
+    (void)(docs__emit(ob_binop("+", ob_binop("+", ob_binop("+", heading, ob_interpolate(1, ob_string(" `")), ob_add), docs__signature(f, name), ob_add), ob_interpolate(1, ob_string("`\n\n")), ob_add)));
+    (void)(docs__emit_doc(ob_index_get(f, ob_interpolate(1, ob_string("doc")))));
+    return ob_null();
+}
+
+OboeValue docs__emit_class(OboeValue c) {
+    OboeValue title = ob_index_get(c, ob_interpolate(1, ob_string("name")));
+    if (ob_truthy(ob_binop("!=", ob_index_get(c, ob_interpolate(1, ob_string("parent_name"))), ob_null(), ob_neq))) {
+        (void)((title = ob_binop("+", ob_binop("+", title, ob_interpolate(1, ob_string(" extends ")), ob_add), ob_index_get(c, ob_interpolate(1, ob_string("parent_name"))), ob_add)));
+    }
+    (void)(docs__emit(ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("### `class ")), title, ob_add), ob_interpolate(1, ob_string("`\n\n")), ob_add)));
+    (void)(docs__emit_doc(ob_index_get(c, ob_interpolate(1, ob_string("doc")))));
+    { OboeValue __it = ob_index_get(c, ob_interpolate(1, ob_string("methods"))); int64_t __n = ob_iter_len(__it);
+    for (int64_t __i = 0; __i < __n; __i++) {
+        OboeValue m = ob_iter_value(__it, __i);
+        if (ob_truthy(ob_index_get(m, ob_interpolate(1, ob_string("is_private"))))) {
+            continue;
+        }
+        OboeValue name = ob_index_get(m, ob_interpolate(1, ob_string("name")));
+        if (ob_truthy(ob_binop("!=", ob_index_get(m, ob_interpolate(1, ob_string("op_symbol"))), ob_null(), ob_neq))) {
+            (void)((name = ob_binop("+", ob_interpolate(1, ob_string("operator ")), ob_index_get(m, ob_interpolate(1, ob_string("op_symbol"))), ob_add)));
+        }
+        (void)(docs__emit_func(m, ob_interpolate(1, ob_string("####")), name));
+    } }
+    return ob_null();
+}
+
+OboeValue docs__basename(OboeValue p) {
+    OboeValue i = ob_binop("-", ob_m_len(p), ob_int(1LL), ob_sub);
+    while (ob_truthy(ob_binop(">=", i, ob_int(0LL), ob_gte))) {
+        OboeValue c = ob_str_substr(p, i, ob_int(1LL));
+        if (ob_truthy(ob_bool(ob_truthy(ob_binop("==", c, ob_interpolate(1, ob_string("/")), ob_eq)) || ob_truthy(ob_binop("==", c, ob_interpolate(1, ob_string("\\")), ob_eq))))) {
+            return ob_str_substr(p, ob_binop("+", i, ob_int(1LL), ob_add), ob_binop("-", ob_binop("-", ob_m_len(p), i, ob_sub), ob_int(1LL), ob_sub));
+        }
+        (void)((i = ob_binop("-", i, ob_int(1LL), ob_sub)));
+    }
+    return p;
+    return ob_null();
+}
+
+OboeValue docs__render_docs(OboeValue decls, OboeValue filename) {
+    (void)((docs__OUT = ({ OboeValue __a = ob_array_new(); __a; })));
+    (void)(docs__emit(ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("# ")), docs__basename(filename), ob_add), ob_interpolate(1, ob_string("\n\n")), ob_add)));
+    OboeValue funcs = ({ OboeValue __a = ob_array_new(); __a; });
+    OboeValue classes = ({ OboeValue __a = ob_array_new(); __a; });
+    OboeValue events = ({ OboeValue __a = ob_array_new(); __a; });
+    { OboeValue __it = decls; int64_t __n = ob_iter_len(__it);
+    for (int64_t __i = 0; __i < __n; __i++) {
+        OboeValue d = ob_iter_value(__it, __i);
+        OboeValue k = ob_index_get(d, ob_interpolate(1, ob_string("kind")));
+        if (ob_truthy(ob_bool(ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("DECL_FUNC")), ob_eq)) || ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("DECL_OPERATOR")), ob_eq))))) {
+            if (ob_truthy(ob_not(ob_index_get(ob_index_get(d, ob_interpolate(1, ob_string("func"))), ob_interpolate(1, ob_string("is_private")))))) {
+                (void)(ob_arr_push(funcs, ob_index_get(d, ob_interpolate(1, ob_string("func")))));
+            }
+        }
+        else {
+            if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("DECL_CLASS")), ob_eq))) {
+                (void)(ob_arr_push(classes, ob_index_get(d, ob_interpolate(1, ob_string("klass")))));
+            }
+            else {
+                if (ob_truthy(ob_binop("==", k, ob_interpolate(1, ob_string("DECL_EVENT")), ob_eq))) {
+                    (void)(ob_arr_push(events, d));
+                }
+            }
+        }
+    } }
+    if (ob_truthy(ob_binop(">", ob_m_len(funcs), ob_int(0LL), ob_gt))) {
+        (void)(docs__emit(ob_interpolate(1, ob_string("## Functions\n\n"))));
+        { OboeValue __it = funcs; int64_t __n = ob_iter_len(__it);
+        for (int64_t __i = 0; __i < __n; __i++) {
+            OboeValue f = ob_iter_value(__it, __i);
+            OboeValue name = ob_index_get(f, ob_interpolate(1, ob_string("name")));
+            if (ob_truthy(ob_binop("!=", ob_index_get(f, ob_interpolate(1, ob_string("op_symbol"))), ob_null(), ob_neq))) {
+                (void)((name = ob_binop("+", ob_interpolate(1, ob_string("operator ")), ob_index_get(f, ob_interpolate(1, ob_string("op_symbol"))), ob_add)));
+            }
+            (void)(docs__emit_func(f, ob_interpolate(1, ob_string("###")), name));
+        } }
+    }
+    if (ob_truthy(ob_binop(">", ob_m_len(classes), ob_int(0LL), ob_gt))) {
+        (void)(docs__emit(ob_interpolate(1, ob_string("## Classes\n\n"))));
+        { OboeValue __it = classes; int64_t __n = ob_iter_len(__it);
+        for (int64_t __i = 0; __i < __n; __i++) {
+            OboeValue c = ob_iter_value(__it, __i);
+            (void)(docs__emit_class(c));
+        } }
+    }
+    if (ob_truthy(ob_binop(">", ob_m_len(events), ob_int(0LL), ob_gt))) {
+        (void)(docs__emit(ob_interpolate(1, ob_string("## Events\n\n"))));
+        { OboeValue __it = events; int64_t __n = ob_iter_len(__it);
+        for (int64_t __i = 0; __i < __n; __i++) {
+            OboeValue e = ob_iter_value(__it, __i);
+            (void)(docs__emit(ob_binop("+", ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string("### `event ")), ob_index_get(e, ob_interpolate(1, ob_string("name"))), ob_add), ob_interpolate(1, ob_string("(")), ob_add), docs__render_params(ob_index_get(e, ob_interpolate(1, ob_string("params")))), ob_add), ob_interpolate(1, ob_string(")`\n\n")), ob_add)));
+        } }
+    }
+    return ob_arr_join(docs__OUT, ob_string(""));
+    return ob_null();
+}
+
+static void __oboe_toplevel_5(void) {
+    docs__OUT = ({ OboeValue __a = ob_array_new(); __a; });
 }
 
 OboeValue dump__oct3(OboeValue n) {
@@ -3738,6 +3921,7 @@ OboeValue dump__dump_func(OboeValue label, OboeValue f, OboeValue depth) {
     (void)(dump__field_str(ob_interpolate(1, ob_string("ret")), ob_index_get(f, ob_interpolate(1, ob_string("return_type")))));
     (void)(dump__emit(ob_binop("+", ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string(" static=")), dump__b01(ob_index_get(f, ob_interpolate(1, ob_string("is_static")))), ob_add), ob_interpolate(1, ob_string(" private=")), ob_add), dump__b01(ob_index_get(f, ob_interpolate(1, ob_string("is_private")))), ob_add)));
     (void)(dump__field_str(ob_interpolate(1, ob_string("op")), ob_index_get(f, ob_interpolate(1, ob_string("op_symbol")))));
+    (void)(dump__field_str(ob_interpolate(1, ob_string("doc")), ob_index_get(f, ob_interpolate(1, ob_string("doc")))));
     (void)(dump__emit(ob_interpolate(1, ob_string("\n"))));
     (void)(dump__dump_params(ob_index_get(f, ob_interpolate(1, ob_string("params"))), ob_binop("+", depth, ob_int(1LL), ob_add)));
     (void)(dump__dump_body(ob_interpolate(1, ob_string("body")), ob_index_get(f, ob_interpolate(1, ob_string("body"))), ob_binop("+", depth, ob_int(1LL), ob_add)));
@@ -3749,6 +3933,7 @@ OboeValue dump__dump_class(OboeValue c, OboeValue depth) {
     (void)(dump__emit(ob_interpolate(1, ob_string("DECL_CLASS"))));
     (void)(dump__field_str(ob_interpolate(1, ob_string("name")), ob_index_get(c, ob_interpolate(1, ob_string("name")))));
     (void)(dump__field_str(ob_interpolate(1, ob_string("parent")), ob_index_get(c, ob_interpolate(1, ob_string("parent_name")))));
+    (void)(dump__field_str(ob_interpolate(1, ob_string("doc")), ob_index_get(c, ob_interpolate(1, ob_string("doc")))));
     (void)(dump__emit(ob_binop("+", ob_binop("+", ob_interpolate(1, ob_string(" line=")), ob_str(ob_index_get(c, ob_interpolate(1, ob_string("line")))), ob_add), ob_interpolate(1, ob_string("\n")), ob_add)));
     (void)(dump__ind(ob_binop("+", depth, ob_int(1LL), ob_add)));
     (void)(dump__emit(ob_interpolate(1, ob_string("fields\n"))));
@@ -4713,12 +4898,35 @@ OboeValue parser__parse_block(OboeValue p) {
     return ob_null();
 }
 
+OboeValue parser__take_doc(OboeValue body) {
+    if (ob_truthy(ob_binop("==", ob_m_len(body), ob_int(0LL), ob_eq))) {
+        return ob_null();
+    }
+    OboeValue s = ob_index_get(body, ob_int(0LL));
+    if (ob_truthy(ob_binop("!=", ob_index_get(s, ob_interpolate(1, ob_string("kind"))), ob_interpolate(1, ob_string("STMT_EXPR")), ob_neq))) {
+        return ob_null();
+    }
+    OboeValue e = ob_index_get(s, ob_interpolate(1, ob_string("expr")));
+    if (ob_truthy(ob_binop("!=", ob_index_get(e, ob_interpolate(1, ob_string("kind"))), ob_interpolate(1, ob_string("EXPR_STRING")), ob_neq))) {
+        return ob_null();
+    }
+    OboeValue parts = ob_index_get(e, ob_interpolate(1, ob_string("str_parts")));
+    if (ob_truthy(ob_bool(ob_truthy(ob_binop("!=", ob_m_len(parts), ob_int(1LL), ob_neq)) || ob_truthy(ob_index_get(ob_index_get(parts, ob_int(0LL)), ob_interpolate(1, ob_string("is_expr"))))))) {
+        return ob_null();
+    }
+    (void)(ob_arr_remove_at(body, ob_int(0LL)));
+    return ob_index_get(ob_index_get(parts, ob_int(0LL)), ob_interpolate(1, ob_string("literal")));
+    return ob_null();
+}
+
 OboeValue parser__parse_func(OboeValue p, OboeValue is_static, OboeValue is_private) {
     OboeValue line = ob_index_get(parser__peek(p), ob_interpolate(1, ob_string("line")));
     (void)(parser__expect(p, ob_interpolate(1, ob_string("T_FUNC")), ob_interpolate(1, ob_string("expected 'func'"))));
     OboeValue name = parser__expect(p, ob_interpolate(1, ob_string("T_IDENT")), ob_interpolate(1, ob_string("expected function name")));
     OboeValue params = parser__parse_params(p);
-    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_index_get(name, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("return_type"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("params"))), params); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_static"))), is_static); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_private"))), is_private); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("op_symbol"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("body"))), parser__parse_block(p)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
+    OboeValue body = parser__parse_block(p);
+    OboeValue doc = parser__take_doc(body);
+    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_index_get(name, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("return_type"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("params"))), params); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_static"))), is_static); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_private"))), is_private); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("op_symbol"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("doc"))), doc); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("body"))), body); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
     return ob_null();
 }
 
@@ -4729,7 +4937,9 @@ OboeValue parser__parse_operator_decl(OboeValue p) {
         (void)(parser__fail(p, ob_interpolate(1, ob_string("expected an operator symbol after 'operator'"))));
     }
     OboeValue params = parser__parse_params(p);
-    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_interpolate(1, ob_string("operator"))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("return_type"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("params"))), params); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_static"))), ob_bool(false)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_private"))), ob_bool(false)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("op_symbol"))), ob_index_get(sym, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("body"))), parser__parse_block(p)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
+    OboeValue body = parser__parse_block(p);
+    OboeValue doc = parser__take_doc(body);
+    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_interpolate(1, ob_string("operator"))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("return_type"))), ob_null()); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("params"))), params); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_static"))), ob_bool(false)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("is_private"))), ob_bool(false)); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("op_symbol"))), ob_index_get(sym, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("doc"))), doc); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("body"))), body); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
     return ob_null();
 }
 
@@ -4742,6 +4952,15 @@ OboeValue parser__parse_class(OboeValue p) {
         (void)((parent_name = ob_index_get(pn, ob_interpolate(1, ob_string("text")))));
     }
     (void)(parser__expect(p, ob_interpolate(1, ob_string("T_LBRACE")), ob_interpolate(1, ob_string("expected '{' to start class body"))));
+    OboeValue doc = ob_null();
+    if (ob_truthy(parser__check(p, ob_interpolate(1, ob_string("T_STRING"))))) {
+        OboeValue dt = parser__advance(p);
+        OboeValue dparts = parser__parse_string_literal_parts(p, ob_index_get(dt, ob_interpolate(1, ob_string("text"))));
+        if (ob_truthy(ob_bool(ob_truthy(ob_binop("!=", ob_m_len(dparts), ob_int(1LL), ob_neq)) || ob_truthy(ob_index_get(ob_index_get(dparts, ob_int(0LL)), ob_interpolate(1, ob_string("is_expr"))))))) {
+            (void)(parser__fail(p, ob_interpolate(1, ob_string("a class docstring cannot interpolate"))));
+        }
+        (void)((doc = ob_index_get(ob_index_get(dparts, ob_int(0LL)), ob_interpolate(1, ob_string("literal")))));
+    }
     OboeValue fields = ({ OboeValue __a = ob_array_new(); __a; });
     OboeValue methods = ({ OboeValue __a = ob_array_new(); __a; });
     while (ob_truthy(ob_bool(ob_truthy(ob_not(parser__check(p, ob_interpolate(1, ob_string("T_RBRACE"))))) && ob_truthy(ob_not(parser__check(p, ob_interpolate(1, ob_string("T_EOF")))))))) {
@@ -4790,7 +5009,7 @@ OboeValue parser__parse_class(OboeValue p) {
         }
     }
     (void)(parser__expect(p, ob_interpolate(1, ob_string("T_RBRACE")), ob_interpolate(1, ob_string("expected '}' to close class"))));
-    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_index_get(name, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("parent_name"))), parent_name); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("fields"))), fields); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("methods"))), methods); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
+    return ({ OboeValue __d = ob_dict_new(); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("name"))), ob_index_get(name, ob_interpolate(1, ob_string("text")))); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("parent_name"))), parent_name); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("doc"))), doc); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("fields"))), fields); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("methods"))), methods); ob_dict_set(__d, ob_to_cstr(ob_interpolate(1, ob_string("line"))), line); __d; });
     return ob_null();
 }
 
@@ -5216,6 +5435,7 @@ static void __oboe_toplevel_1(void) {
 OboeValue usage() {
     (void)((ob_eprint(ob_interpolate(1, ob_string("usage: oboec <file> -o <out.c> [--target-os <os>]"))), ob_null()));
     (void)((ob_eprint(ob_interpolate(1, ob_string("       oboec --dump-tokens|--dump-ast|--emit-c <file>"))), ob_null()));
+    (void)((ob_eprint(ob_interpolate(1, ob_string("       oboec --docs <file>"))), ob_null()));
     (void)(ob_std_os_exit(ob_int(2LL)));
     return ob_null();
 }
@@ -5253,6 +5473,11 @@ OboeValue oboe_user_main(OboeValue args) {
         }
         if (ob_truthy(ob_binop("==", a, ob_interpolate(1, ob_string("--dump-ast")), ob_eq))) {
             (void)((mode = ob_interpolate(1, ob_string("ast"))));
+            (void)((i = ob_binop("+", i, ob_int(1LL), ob_add)));
+            continue;
+        }
+        if (ob_truthy(ob_binop("==", a, ob_interpolate(1, ob_string("--docs")), ob_eq))) {
+            (void)((mode = ob_interpolate(1, ob_string("docs"))));
             (void)((i = ob_binop("+", i, ob_int(1LL), ob_add)));
             continue;
         }
@@ -5307,9 +5532,14 @@ OboeValue oboe_user_main(OboeValue args) {
     OboeValue toks = lexer__lex_all(read_source(input));
     if (ob_truthy(ob_binop("==", mode, ob_interpolate(1, ob_string("tokens")), ob_eq))) {
         (void)((ob_write(dump__dump_tokens(toks)), ob_null()));
+        return ob_null();
+    }
+    OboeValue decls = parser__parse_program(toks, input);
+    if (ob_truthy(ob_binop("==", mode, ob_interpolate(1, ob_string("docs")), ob_eq))) {
+        (void)((ob_write(docs__render_docs(decls, input)), ob_null()));
     }
     else {
-        (void)((ob_write(dump__dump_ast(parser__parse_program(toks, input))), ob_null()));
+        (void)((ob_write(dump__dump_ast(decls)), ob_null()));
     }
     return ob_null();
 }
@@ -5322,6 +5552,7 @@ static void __oboe_static_init(void) {
 
 int main(int argc, char **argv) {
     __oboe_static_init();
+    __oboe_toplevel_8();
     __oboe_toplevel_7();
     __oboe_toplevel_6();
     __oboe_toplevel_5();

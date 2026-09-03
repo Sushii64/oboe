@@ -308,6 +308,7 @@ func dump_func(str label, f, int depth) {
 	emit(" static=" + b01(f["is_static"]) + " private=" +
 	     b01(f["is_private"]))
 	field_str("op", f["op_symbol"])
+	field_str("doc", f["doc"])
 	emit("\n")
 	dump_params(f["params"], depth + 1)
 	dump_body("body", f["body"], depth + 1)
@@ -318,6 +319,7 @@ func dump_class(c, int depth) {
 	emit("DECL_CLASS")
 	field_str("name", c["name"])
 	field_str("parent", c["parent_name"])
+	field_str("doc", c["doc"])
 	emit(" line=" + str(c["line"]) + "\n")
 	ind(depth + 1)
 	emit("fields\n")

@@ -18,6 +18,7 @@ import os
 import lex_all from lexer
 import parse_program from parser
 import dump_tokens, dump_ast from dump
+import render_docs from docs
 // qualified, not `from`: the textual import pre-scan reads one line, so a
 // member list long enough to wrap would be missed by it
 import codegen
@@ -26,6 +27,7 @@ import fail from diag
 func usage() {
 	eprint("usage: oboec <file> -o <out.c> [--target-os <os>]")
 	eprint("       oboec --dump-tokens|--dump-ast|--emit-c <file>")
+	eprint("       oboec --docs <file>")
 	os.exit(2)
 }
 
@@ -54,6 +56,11 @@ func main(array args) {
 		}
 		if (a == "--dump-ast") {
 			mode = "ast"
+			i = i + 1
+			continue
+		}
+		if (a == "--docs") {
+			mode = "docs"
 			i = i + 1
 			continue
 		}
@@ -115,7 +122,12 @@ func main(array args) {
 	var toks = lex_all(read_source(input))
 	if (mode == "tokens") {
 		write(dump_tokens(toks))
+		return null
+	}
+	var decls = parse_program(toks, input)
+	if (mode == "docs") {
+		write(render_docs(decls, input))
 	} else {
-		write(dump_ast(parse_program(toks, input)))
+		write(dump_ast(decls))
 	}
 }
